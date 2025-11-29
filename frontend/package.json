@@ -1,5 +1,5 @@
 {
-  "name": "lotto-nextjs",
+  "name": "frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -10,15 +10,11 @@
   },
   "dependencies": {
     "@apollo/client": "^4.0.9",
-    "apollo-server-micro": "^3.13.0",
-    "bcrypt": "^6.0.0",
     "graphql": "^16.12.0",
-    "jsonwebtoken": "^9.0.2",
     "next": "16.0.5",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "recharts": "^3.5.1",
-    "sqlite3": "^5.1.7"
+    "recharts": "^3.5.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
