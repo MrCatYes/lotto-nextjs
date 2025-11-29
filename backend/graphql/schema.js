@@ -13,12 +13,18 @@ const typeDefs = gql`
     premium: Boolean
   }
 
+  type Occurrence {
+    number: Int
+    count: Int
+  }
+
   type Probabilite {
     probabilite: Float
   }
 
   type Query {
     tirages(limit: Int, premium: Boolean): [Tirage]
+    occurrences(premium: Boolean): [Occurrence] # stats : freq par numéro
   }
 
   type Mutation {
