@@ -125,31 +125,40 @@ export default function TiragesPage() {
 
   return (
     <div className="py-6 max-w-6xl mx-auto px-4">
-      <h1 className="text-3xl font-bold mb-6">Tirages Lotto</h1>
+      <h1 className="text-3xl font-bold mb-6">Tirages Lotto</h1> 
 
-      <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center mb-4">
-        {/* DatePicker avec bouton */}
-        <DatePickerPopup
-          value={selectedDate}
-          onChange={setSelectedDate}
-          isPremium={isPremium}
-        />
+      <div className="flex flex-col sm:flex-row sm:items-end gap-3 mb-4 w-full bg-gray-50 dark:bg-gray-800 p-3 rounded shadow-sm">
+        <div className="flex flex-0 flex-col sm:flex-row sm:items-end gap-2 w-full">
+          {/* Conteneur DatePicker + bouton */}
+          <div className="flex flex-1 gap-2 items-end">
+            <div className="flex-1 flex flex-col">
+              <label className="block text-gray-700 dark:text-gray-300 text-sm mb-1">
+                Select a Draw Date (YYYY-MM-DD)
+              </label>
+              <DatePickerPopup
+                value={selectedDate}
+                onChange={setSelectedDate}
+                isPremium={isPremium}
+              />
+            </div>
 
-        <button
-          onClick={fetchTirages}
-          className="px-3 py-2 bg-blue-600 text-white rounded"
-        >
-          Rechercher
-        </button>
+            <button
+              onClick={fetchTirages}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition h-10 flex-shrink-0"
+            >
+              Rechercher
+            </button>
+          </div>
+        </div>
 
-        {/* Menus année / mois / tirages par page */}
-        <div className="flex flex-wrap items-center gap-2 mt-2 sm:mt-0">
-          <label className="text-gray-800 dark:text-gray-200">
-            Tirages par page:
+        {/* Conteneur Sélecteurs */}
+        <div className="flex gap-2 items-end ml-auto">
+          <label className="flex flex-col text-gray-700 dark:text-gray-300 text-sm">
+            Tirages par page
             <select
               value={tiragesPerPage}
               onChange={e => setTiragesPerPage(Number(e.target.value))}
-              className="border rounded px-2 py-1 text-blue-600"
+              className="border rounded px-2 py-2 text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 h-10"
             >
               {[10, 20, 50].map(n => (
                 <option key={n} value={n}>{n}</option>
@@ -157,12 +166,15 @@ export default function TiragesPage() {
             </select>
           </label>
 
-          <label className="text-gray-800 dark:text-gray-200">
-            Année:
+          <label className="flex flex-col text-gray-700 dark:text-gray-300 text-sm">
+            Année
             <select
               value={selectedYear ?? ""}
-              onChange={e => setSelectedYear(e.target.value ? Number(e.target.value) : null)}
-              className="border rounded px-2 py-1 text-blue-600"
+              onChange={e => {
+                setSelectedYear(e.target.value ? Number(e.target.value) : null);
+                setSelectedDate("");
+              }}
+              className="border rounded px-2 py-2 text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 h-10"
             >
               <option value="">Toutes</option>
               {years.map(year => (
@@ -171,12 +183,15 @@ export default function TiragesPage() {
             </select>
           </label>
 
-          <label className="text-gray-800 dark:text-gray-200">
-            Mois:
+          <label className="flex flex-col text-gray-700 dark:text-gray-300 text-sm">
+            Mois
             <select
               value={selectedMonth !== null ? selectedMonth : ""}
-              onChange={e => setSelectedMonth(e.target.value !== "" ? Number(e.target.value) : null)}
-              className="border rounded px-2 py-1 text-blue-600"
+              onChange={e => {
+                setSelectedMonth(e.target.value !== "" ? Number(e.target.value) : null);
+                setSelectedDate("");
+              }}
+              className="border rounded px-2 py-2 text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 h-10"
             >
               <option value="">Tous</option>
               {months.map((month, i) => (
