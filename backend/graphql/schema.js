@@ -34,13 +34,7 @@ const typeDefs = gql`
   }
 
   type Query {
-    tirages(
-      limit: Int = 10 # valeur par défaut 10
-      premium: Boolean
-      date: String
-      year: Int
-      month: Int
-    ): [Tirage!]!
+    tirages(limit: Int!, offset: Int, premium: Boolean!, date: String, year: Int, month: Int): [Tirage!]!
 
     occurrences(premium: Boolean): [Occurrence]
     admins: [Admin!]!
@@ -49,6 +43,7 @@ const typeDefs = gql`
 
   type Mutation {
     calculerProbabilite(numeros: [Int]!, premium: Boolean): Probabilite
+
     createAdmin(username: String!, password: String!): Admin!
     loginAdmin(username: String!, password: String!): AuthPayload!
   }

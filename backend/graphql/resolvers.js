@@ -8,7 +8,7 @@ let admins = []; // mémoire pour test
 const resolvers = {
   Query: {
     admins: () => admins,
-    tirages: async (_, { limit = 10, premium = false, date, year, month }, context) => {
+    tirages: async (_, { limit = 10, offset = 0, premium = false, date, year, month }, context) => {
       const db = await context.db();
 
       let query = `
@@ -18,36 +18,27 @@ const resolvers = {
       `;
       const params = [];
 
-      // Filtre premium
       if (!premium) query += " AND premium = 0";
 
-      // Filtre date
-      if (date && typeof date === "string" && date.trim() !== "") {
+      if (date) {
         query += " AND date = ?";
         params.push(date);
       }
 
-      // Filtre année
       if (year) {
         query += " AND strftime('%Y', date) = ?";
         params.push(String(year));
       }
 
-      // Filtre mois (0-based JS -> 1-based SQLite)
       if (month !== undefined && month !== null) {
         query += " AND strftime('%m', date) = ?";
         params.push(String(month + 1).padStart(2, "0"));
       }
 
-      // Tri + limit
-      query += " ORDER BY date DESC LIMIT ?";
-      params.push(Number(limit));
+      query += " ORDER BY date DESC LIMIT ? OFFSET ?";
+      params.push(limit, offset);
 
-      console.log("🟦 Query tirages:", query);
-      console.log("🟦 Params:", params);
-
-      const rows = await db.all(query, params);
-      return rows;
+      return await db.all(query, params);
     },
 
     occurrences: async (_, { premium = false }) => {
