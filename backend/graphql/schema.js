@@ -9,6 +9,7 @@ const typeDefs = gql`
     num3: Int
     num4: Int
     num5: Int
+    num6: Int
     bonus: Int
     premium: Boolean
   }
@@ -22,13 +23,34 @@ const typeDefs = gql`
     probabilite: Float
   }
 
+  type Admin {
+    id: ID!
+    username: String!
+  }
+
+  type AuthPayload {
+    token: String!
+    admin: Admin!
+  }
+
   type Query {
-    tirages(limit: Int, premium: Boolean): [Tirage]
-    occurrences(premium: Boolean): [Occurrence] # stats : freq par numéro
+    tirages(
+      limit: Int = 10 # valeur par défaut 10
+      premium: Boolean
+      date: String
+      year: Int
+      month: Int
+    ): [Tirage!]!
+
+    occurrences(premium: Boolean): [Occurrence]
+    admins: [Admin!]!
+    availableDates(premium: Boolean): [String!]!
   }
 
   type Mutation {
     calculerProbabilite(numeros: [Int]!, premium: Boolean): Probabilite
+    createAdmin(username: String!, password: String!): Admin!
+    loginAdmin(username: String!, password: String!): AuthPayload!
   }
 `;
 

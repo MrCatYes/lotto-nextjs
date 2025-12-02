@@ -1,58 +1,130 @@
-﻿const { openDB } = require("../db");
+﻿const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const { openDB } = require("../db");
+
+const SECRET = "ton_secret_jwt"; // à mettre en variable d'environnement
+let admins = []; // mémoire pour test
 
 const resolvers = {
   Query: {
-    tirages: async (_, { limit = 5, premium = false }) => {
-      const db = await openDB();
-      let query = "SELECT * FROM tirages";
+    admins: () => admins,
+    tirages: async (_, { limit = 10, premium = false, date, year, month }, context) => {
+      const db = await context.db();
+
+      let query = `
+        SELECT *
+        FROM tirages
+        WHERE 1=1
+      `;
       const params = [];
-      if (!premium) query += " WHERE premium=0";
+
+      // Filtre premium
+      if (!premium) query += " AND premium = 0";
+
+      // Filtre date
+      if (date && typeof date === "string" && date.trim() !== "") {
+        query += " AND date = ?";
+        params.push(date);
+      }
+
+      // Filtre année
+      if (year) {
+        query += " AND strftime('%Y', date) = ?";
+        params.push(String(year));
+      }
+
+      // Filtre mois (0-based JS -> 1-based SQLite)
+      if (month !== undefined && month !== null) {
+        query += " AND strftime('%m', date) = ?";
+        params.push(String(month + 1).padStart(2, "0"));
+      }
+
+      // Tri + limit
       query += " ORDER BY date DESC LIMIT ?";
-      params.push(limit);
+      params.push(Number(limit));
+
+      console.log("🟦 Query tirages:", query);
+      console.log("🟦 Params:", params);
+
       const rows = await db.all(query, params);
       return rows;
     },
 
     occurrences: async (_, { premium = false }) => {
       const db = await openDB();
-      let query = "SELECT num1,num2,num3,num4,num5 FROM tirages";
+
+      premium = !!premium;
+      let query = "SELECT num1,num2,num3,num4,num5,num6 FROM tirages";
       const params = [];
       if (!premium) query += " WHERE premium=0";
+
       const rows = await db.all(query, params);
 
-      // compter occurrences sur 1..max (on cherche max number dynamiquement)
       const counts = {};
       rows.forEach((r) => {
-        [r.num1, r.num2, r.num3, r.num4, r.num5].forEach((n) => {
+        [r.num1, r.num2, r.num3, r.num4, r.num5, r.num6].forEach((n) => {
           if (!n) return;
           counts[n] = (counts[n] || 0) + 1;
         });
       });
 
-      // transformer en tableau trié par number
-      const result = Object.keys(counts)
+      return Object.keys(counts)
         .map((k) => ({ number: parseInt(k), count: counts[k] }))
         .sort((a, b) => a.number - b.number);
+    },
 
-      return result;
+    availableDates: async (_, { premium = false }, context) => {
+      const db = await context.db();
+      let query = "SELECT DISTINCT date FROM tirages";
+      const params = [];
+      if (!premium) query += " WHERE premium = 0";
+      const rows = await db.all(query, params);
+      // Retourner un tableau de strings "YYYY-MM-DD"
+      return rows.map((r) => r.date);
     },
   },
 
   Mutation: {
+    createAdmin: async (_, { username, password }) => {
+      const hashed = await bcrypt.hash(password, 10);
+      const newAdmin = { id: admins.length + 1, username, password: hashed };
+      admins.push(newAdmin);
+      return { id: newAdmin.id, username: newAdmin.username };
+    },
+
+    loginAdmin: async (_, { username, password }) => {
+      const admin = admins.find((a) => a.username === username);
+      if (!admin) throw new Error("Admin introuvable");
+
+      const valid = await bcrypt.compare(password, admin.password);
+      if (!valid) throw new Error("Mot de passe incorrect");
+
+      const token = jwt.sign({ id: admin.id, username: admin.username, role: "admin" }, SECRET, { expiresIn: "1d" });
+
+      return { token, admin: { id: admin.id, username: admin.username } };
+    },
+
     calculerProbabilite: async (_, { numeros, premium = false }) => {
       const db = await openDB();
-      let query = "SELECT num1,num2,num3,num4,num5,bonus FROM tirages";
+
+      premium = !!premium;
+      numeros = numeros.map(Number);
+
+      let query = "SELECT num1,num2,num3,num4,num5,num6,bonus FROM tirages";
       const params = [];
       if (!premium) query += " WHERE premium=0";
+
       const rows = await db.all(query, params);
+
       let count = 0;
       rows.forEach((t) => {
-        const tirageNums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.bonus];
+        const tirageNums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.bonus];
         if (numeros.every((n) => tirageNums.includes(n))) count++;
       });
+
       return { probabilite: rows.length > 0 ? count / rows.length : 0 };
     },
   },
 };
 
-module.exports = { resolvers };
+module.exports = { resolvers, SECRET };
