@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { ApolloClient, InMemoryCache, HttpLink, gql } from "@apollo/client";
 import DatePickerPopup from "@/components/DatePickerPopup";
+import ExportMenu from "@/components/ExportMenu";
 
 interface Tirage {
   id: string;
@@ -223,19 +224,7 @@ export default function TiragesPage() {
         </div>
       )}
 
-      <button
-        onClick={handleExportClick}
-        className="px-3 py-2 bg-green-600 text-white rounded mt-4 relative"
-      >
-        Export
-        {isPremium && (
-          <div className="absolute top-full left-0 w-32 bg-white border mt-1 rounded shadow z-10">
-            <button className="block w-full px-2 py-1 hover:bg-gray-100">CSV</button>
-            <button className="block w-full px-2 py-1 hover:bg-gray-100">XLSX</button>
-            <button className="block w-full px-2 py-1 hover:bg-gray-100">PDF</button>
-          </div>
-        )}
-      </button>
+<ExportMenu tirages={tirages} />
     </div>
   );
 }
