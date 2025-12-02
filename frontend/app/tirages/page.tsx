@@ -1,31 +1,35 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import DatePicker from "react-datepicker";
-import "react-datepicker/dist/react-datepicker.css";
+import { useState, useEffect } from "react";
 import { ApolloClient, InMemoryCache, HttpLink, gql } from "@apollo/client";
+import DatePickerPopup from "@/components/DatePickerPopup";
 
-interface DatePickerPopupProps {
-  value: string;
-  onChange: (date: string) => void;
-  isPremium: boolean;
-  token?: string | null;
+interface Tirage {
+  id: string;
+  date: string;
+  num1: number;
+  num2: number;
+  num3: number;
+  num4: number;
+  num5: number;
+  num6: number;
+  bonus?: number;
+  premium: boolean;
 }
 
-export default function DatePickerPopup({
-  value,
-  onChange,
-  isPremium,
-  token,
-}: DatePickerPopupProps) {
-  const [open, setOpen] = useState(false);
-  const [view, setView] = useState<"day" | "month" | "year">("day");
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [availableDates, setAvailableDates] = useState<string[]>([]);
-  const selectedDate = value ? new Date(value) : null;
-  const containerRef = useRef<HTMLDivElement>(null);
+export default function TiragesPage() {
+  const [tirages, setTirages] = useState<Tirage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Apollo Client
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [tiragesPerPage, setTiragesPerPage] = useState(10);
+  const [isPremium] = useState(true); // simuler accès premium
+
+  const token = typeof window !== "undefined" ? localStorage.getItem("adminToken") : null;
+
   const client = new ApolloClient({
     link: new HttpLink({
       uri: "http://localhost:4000/graphql",
@@ -34,150 +38,203 @@ export default function DatePickerPopup({
     cache: new InMemoryCache(),
   });
 
-  // Fetch dates disponibles
-  useEffect(() => {
-    const fetchAvailableDates = async () => {
-      try {
-        const res = await client.query({
-          query: gql`
-            query AvailableDates($premium: Boolean!) {
-              availableDates(premium: $premium)
+  // Fetch tirages
+  const fetchTirages = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await client.query({
+        query: gql`
+          query GetTirages($limit: Int!, $offset: Int!, $premium: Boolean!, $date: String, $year: Int, $month: Int) {
+            tirages(limit: $limit, offset: $offset, premium: $premium, date: $date, year: $year, month: $month) {
+              id
+              date
+              num1
+              num2
+              num3
+              num4
+              num5
+              num6
+              bonus
+              premium
             }
-          `,
-          variables: { premium: isPremium },
-          fetchPolicy: "no-cache",
-        });
-        setAvailableDates(res.data.availableDates);
-      } catch (err) {
-        console.error(err);
+          }
+        `,
+        variables: {
+          limit: tiragesPerPage,
+          offset: 0,
+          premium: isPremium,
+          date: selectedDate || null,
+          year: selectedYear || null,
+          month: selectedMonth !== null ? selectedMonth : null,
+        },
+        fetchPolicy: "no-cache",
+      });
+
+      let allTirages: Tirage[] = res.data.tirages;
+
+      // Limiter aux 2 années précédentes pour non-premium
+      if (!isPremium) {
+        const twoYearsAgo = new Date();
+        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+        allTirages = allTirages.filter(t => new Date(t.date) >= twoYearsAgo);
       }
-    };
-    fetchAvailableDates();
-  }, [isPremium]);
 
-  // Fermer popup au clic hors composant
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setOpen(false);
-        setView("day");
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  // Header dynamique
-  const getHeaderLabel = () => {
-    if (view === "day") return currentDate.toLocaleString("default", { month: "long", year: "numeric" });
-    if (view === "month") return currentDate.getFullYear().toString();
-    if (view === "year") return `Années`;
-  };
-
-  const handleHeaderClick = () => {
-    if (view === "day") setView("month");
-    else if (view === "month") setView("year");
-  };
-
-  const handleYearSelect = (year: number) => {
-    setCurrentDate(new Date(year, currentDate.getMonth(), 1));
-    setView("month");
-  };
-
-  const handleMonthSelect = (month: number) => {
-    setCurrentDate(new Date(currentDate.getFullYear(), month, 1));
-    setView("day");
-  };
-
-  const handleDayClick = (date: Date) => {
-    const iso = date.toISOString().split("T")[0];
-    if (availableDates.includes(iso)) {
-      onChange(iso);
-      setCurrentDate(date);
-      setOpen(false);
-      setView("day");
+      // Trier par date décroissante
+      allTirages.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setTirages(allTirages);
+    } catch (err: any) {
+      setError(err.message || "Erreur GraphQL");
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Déterminer min/max années
-  const yearsAll = availableDates.map(d => new Date(d).getFullYear());
-  const maxYear = Math.max(...yearsAll, new Date().getFullYear());
-  const minYear = isPremium ? Math.min(...yearsAll) : Math.max(...yearsAll) - 2;
+  useEffect(() => {
+    fetchTirages();
+  }, [selectedDate, tiragesPerPage, selectedYear, selectedMonth]);
+
+  // Années pour menu
+  const currentYear = new Date().getFullYear();
+  const years = isPremium
+    ? Array.from({ length: 10 }, (_, i) => currentYear - i)
+    : [currentYear, currentYear - 1, currentYear - 2];
+
+  // Mois pour menu
+  const months = Array.from({ length: 12 }, (_, i) =>
+    new Date(0, i).toLocaleString("default", { month: "long" })
+  );
+
+  // Group tirages par mois
+  const tiragesGroupedByMonth: { [monthYear: string]: Tirage[] } = {};
+  tirages.forEach((t) => {
+    const d = new Date(t.date);
+    const monthYear = d.toLocaleString("default", { month: "long", year: "numeric" });
+    if (!tiragesGroupedByMonth[monthYear]) tiragesGroupedByMonth[monthYear] = [];
+    tiragesGroupedByMonth[monthYear].push(t);
+  });
+
+  const handleExportClick = () => {
+    if (!isPremium) {
+      alert("Seuls les abonnés premium peuvent télécharger les résultats.");
+      return;
+    }
+    // TODO: ajouter menu export CSV/XLSX/PDF
+  };
 
   return (
-    <div className="relative inline-block w-52" ref={containerRef}>
-      <div className="relative">
-        <DatePicker
-          selected={selectedDate}
-          onChange={handleDayClick}
-          open={open}
-          onInputClick={() => setOpen(true)}
-          onClickOutside={() => setOpen(false)}
-          placeholderText="YYYY-MM-DD"
-          className="border px-3 py-2 rounded w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
-          dateFormat="yyyy-MM-dd"
-          minDate={new Date(minYear, 0, 1)}
-          maxDate={new Date(maxYear, 11, 31)}
-          showMonthYearPicker={view === "month"}
-          showYearPicker={view === "year"}
-          dayClassName={(date: Date) => {
-            const iso = date.toISOString().split("T")[0];
-            const isAvailable = availableDates.includes(iso);
-            return isAvailable
-              ? "text-blue-700 cursor-pointer hover:bg-blue-100 rounded"
-              : "text-gray-400 pointer-events-none";
-          }}
-          renderCustomHeader={({ decreaseMonth, increaseMonth, prevMonthButtonDisabled, nextMonthButtonDisabled }) => (
-            <div className="flex justify-between items-center px-2 py-1 bg-gray-100 rounded-t">
-              <button onClick={decreaseMonth} disabled={prevMonthButtonDisabled} className="p-1 hover:bg-gray-200 rounded">{"<"}</button>
-              <span className="font-semibold cursor-pointer" onClick={handleHeaderClick}>
-                {getHeaderLabel()}
-              </span>
-              <button onClick={increaseMonth} disabled={nextMonthButtonDisabled} className="p-1 hover:bg-gray-200 rounded">{">"}</button>
-            </div>
-          )}
+    <div className="py-6 max-w-6xl mx-auto px-4">
+      <h1 className="text-3xl font-bold mb-6">Tirages Lotto</h1>
+
+      <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center mb-4">
+        {/* DatePicker avec bouton */}
+        <DatePickerPopup
+          value={selectedDate}
+          onChange={setSelectedDate}
+          isPremium={isPremium}
         />
 
-        {/* Vue Années */}
-        {view === "year" && (
-          <div className="absolute top-full left-0 w-full bg-white border mt-1 p-2 grid grid-cols-4 gap-2 max-h-64 overflow-auto z-10 rounded shadow-lg">
-            {Array.from({ length: maxYear - minYear + 1 }, (_, i) => maxYear - i).map((year) => (
-              <button
-                key={year}
-                className="p-1 hover:bg-blue-100 rounded text-center text-blue-700"
-                onClick={() => handleYearSelect(year)}
-              >
-                {year}
-              </button>
-            ))}
-          </div>
-        )}
+        <button
+          onClick={fetchTirages}
+          className="px-3 py-2 bg-blue-600 text-white rounded"
+        >
+          Rechercher
+        </button>
 
-        {/* Vue Mois */}
-        {view === "month" && (
-          <div className="absolute top-full left-0 w-full bg-white border mt-1 p-2 grid grid-cols-3 gap-2 z-10 rounded shadow-lg">
-            {Array.from({ length: 12 }, (_, i) =>
-              new Date(0, i).toLocaleString("default", { month: "short" })
-            ).map((monthName, index) => (
-              <button
-                key={index}
-                className="p-1 hover:bg-blue-100 rounded text-center text-blue-700"
-                onClick={() => handleMonthSelect(index)}
-              >
-                {monthName}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Menus année / mois / tirages par page */}
+        <div className="flex flex-wrap items-center gap-2 mt-2 sm:mt-0">
+          <label className="text-gray-800 dark:text-gray-200">
+            Tirages par page:
+            <select
+              value={tiragesPerPage}
+              onChange={e => setTiragesPerPage(Number(e.target.value))}
+              className="border rounded px-2 py-1 text-blue-600"
+            >
+              {[10, 20, 50].map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-gray-800 dark:text-gray-200">
+            Année:
+            <select
+              value={selectedYear ?? ""}
+              onChange={e => setSelectedYear(e.target.value ? Number(e.target.value) : null)}
+              className="border rounded px-2 py-1 text-blue-600"
+            >
+              <option value="">Toutes</option>
+              {years.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-gray-800 dark:text-gray-200">
+            Mois:
+            <select
+              value={selectedMonth !== null ? selectedMonth : ""}
+              onChange={e => setSelectedMonth(e.target.value !== "" ? Number(e.target.value) : null)}
+              className="border rounded px-2 py-1 text-blue-600"
+            >
+              <option value="">Tous</option>
+              {months.map((month, i) => (
+                <option key={i} value={i}>{month}</option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
-      {/* Bouton calendrier */}
+      {!isPremium && (
+        <p className="text-yellow-600 mt-2">
+          Seuls les utilisateurs premium ont accès aux données complètes et à la fonctionnalité d'export.
+        </p>
+      )}
+
+      {loading && <p className="text-gray-600 dark:text-gray-300">Chargement...</p>}
+      {error && <p className="text-red-500">Erreur: {error}</p>}
+
+      {!loading && !error && (
+        <div className="overflow-x-auto bg-white dark:bg-gray-800 rounded shadow mt-4">
+          {Object.entries(tiragesGroupedByMonth).map(([month, tirages]) => (
+            <div key={month} className="mb-4">
+              <div className="px-4 py-2 bg-gray-200 dark:bg-gray-700 font-semibold rounded-t">
+                {month}
+              </div>
+              <table className="min-w-full text-left">
+                <tbody>
+                  {tirages.map(t => (
+                    <tr key={t.id} className="border-b hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-4 py-3">{t.date}</td>
+                      <td className="px-4 py-3 flex gap-1 flex-wrap">
+                        {[t.num1, t.num2, t.num3, t.num4, t.num5, t.num6].map((n, i) => (
+                          <span key={i} className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-sm">{n}</span>
+                        ))}
+                      </td>
+                      <td className="px-4 py-3">{t.bonus ?? "-"}</td>
+                      <td className="px-4 py-3">{t.premium ? "Premium" : "Gratuit"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      )}
+
       <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="absolute right-0 top-0 h-full px-2 flex items-center justify-center border-l bg-gray-100 hover:bg-gray-200 rounded-r"
+        onClick={handleExportClick}
+        className="px-3 py-2 bg-green-600 text-white rounded mt-4 relative"
       >
-        📅
+        Export
+        {isPremium && (
+          <div className="absolute top-full left-0 w-32 bg-white border mt-1 rounded shadow z-10">
+            <button className="block w-full px-2 py-1 hover:bg-gray-100">CSV</button>
+            <button className="block w-full px-2 py-1 hover:bg-gray-100">XLSX</button>
+            <button className="block w-full px-2 py-1 hover:bg-gray-100">PDF</button>
+          </div>
+        )}
       </button>
     </div>
   );
