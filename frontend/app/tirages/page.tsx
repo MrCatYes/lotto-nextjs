@@ -249,82 +249,84 @@ export default function TiragesPage() {
         </Listbox>
       </div>
 
-      </div>
-
-      {!isPremium && (
-        <p className="text-yellow-600 mt-2">
-          Seuls les utilisateurs premium ont accès aux données complètes et à la fonctionnalité d'export.
-        </p>
-      )}
-
-      {loading && <p className="text-gray-600 dark:text-gray-300">Chargement...</p>}
-      {error && <p className="text-red-500">Erreur: {error}</p>}
-
-      {!loading && !error && (
-  <div className="overflow-x-auto bg-white dark:bg-gray-800 rounded shadow mt-4">
-  {Object.entries(tiragesGroupedByMonth).map(([month, tirages]) => (
-    <div key={month} className="mb-4">
-      {/* Entête mois + année + Winning Numbers */}
-      <div className="flex justify-between items-center px-4 py-2 bg-gray-200 dark:bg-gray-700 font-semibold rounded-t text-gray-800 dark:text-gray-100">
-        <span>{month}</span>
-        <span className="text-center">Winning Numbers</span>
-      </div>
-
-      <table className="min-w-full text-left">
-        <tbody>
-          {tirages.map(t => (
-            <tr key={t.id} className="border-b hover:bg-gray-50 dark:hover:bg-gray-700">
-              <td className="px-4 py-3">{t.date}</td>
-              <td className="px-4 py-3 flex gap-2 flex-wrap justify-center items-center">
-                {/* Boules principales */}
-                {[t.num1, t.num2, t.num3, t.num4, t.num5, t.num6].map((n, i) => {
-                  const colors = ["#0d6efd", "#198754"];
-                  const color = colors[i % colors.length];
-                  return (
-                    <span
-                      key={i}
-                      className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full text-white font-bold text-sm md:text-base shadow-lg flex-shrink-0 transition-transform transform hover:scale-110"
-                      style={{
-                        background: `radial-gradient(circle at 30% 30%, rgba(255,255,255,0.5), ${color})`,
-                      }}
-                    >
-                      {n}
-                    </span>
-                  );
-                })}
-
-                {/* Signe + */}
-                {t.bonus !== undefined && <span className="text-lg font-bold text-gray-700">+</span>}
-
-                {/* Boule bonus */}
-                {t.bonus !== undefined && (
-                  <span
-                    className="relative w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full text-white font-bold text-sm md:text-base shadow-lg flex-shrink-0 transition-transform transform hover:scale-110"
-                    style={{
-                      background: `radial-gradient(circle at 30% 30%, rgba(255,255,255,0.5), #ffc107)`,
-                    }}
-                  >
-                    {t.bonus}
-                    {/* Pastille BB style Lotto Max */}
-                    <span className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 bg-red-600 text-white font-bold rounded-full w-6 h-6 flex items-center justify-center text-xs md:text-sm shadow">
-                      BB
-                    </span>
-                  </span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
-  ))}
-</div>
 
-)}
+    {!isPremium && (
+      <p className="text-yellow-600 mt-2">
+        Seuls les utilisateurs premium ont accès aux données complètes et à la fonctionnalité d'export.
+      </p>
+    )}
 
+    {loading && <p className="text-gray-600 dark:text-gray-300">Chargement...</p>}
+    {error && <p className="text-red-500">Erreur: {error}</p>}
 
+    {!loading && !error && (
+      <div className="overflow-x-auto bg-white dark:bg-gray-800 rounded shadow mt-4">
+        {Object.entries(tiragesGroupedByMonth).map(([month, tirages]) => (
+          <div key={month} className="mb-4">
+            <div className="relative px-4 py-2 bg-gray-200 dark:bg-gray-700 font-semibold rounded-t text-gray-800 dark:text-gray-100">
+              
+              {/* Mois & année (à gauche) */}
+              <span className="text-left block">{month}</span>
 
-      <ExportMenu tirages={tirages} />
-    </div>
+              {/* Winning Numbers centré absolument */}
+              <span className="absolute left-3/5 top-1/2 -translate-x-1/2 -translate-y-1/2">
+                Winning Numbers
+              </span>
+          </div>
+
+            <table className="min-w-full text-left">
+              <tbody>
+                {tirages.map(t => (
+                  <tr key={t.id} className="border-b hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-4 py-3">{t.date}</td>
+                    <td className="px-4 py-3 flex gap-2 flex-wrap justify-center items-center">
+                      {/* Boules principales */}
+                      {[t.num1, t.num2, t.num3, t.num4, t.num5, t.num6].map((n, i) => {
+                        const colors = ["#0d6efd", "#198754"];
+                        const color = colors[i % colors.length];
+                        return (
+                          <span
+                            key={i}
+                            className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full text-white font-bold text-sm md:text-base shadow-lg flex-shrink-0 transition-transform transform hover:scale-110"
+                            style={{
+                              background: `radial-gradient(circle at 30% 30%, rgba(255,255,255,0.5), ${color})`,
+                            }}
+                          >
+                            {n}
+                          </span>
+                        );
+                      })}
+
+                      {/* Signe + */}
+                      {t.bonus !== undefined && <span className="text-lg font-bold text-gray-700">+</span>}
+
+                      {/* Boule bonus */}
+                      {t.bonus !== undefined && (
+                        <span
+                          className="relative w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-full text-white font-bold text-sm md:text-base shadow-lg flex-shrink-0 transition-transform transform hover:scale-110"
+                          style={{
+                            background: `radial-gradient(circle at 30% 30%, rgba(255,255,255,0.5), #ffc107)`,
+                          }}
+                        >
+                          {t.bonus}
+                          {/* Pastille BB style Lotto Max */}
+                          <span className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 bg-red-600 text-white font-bold rounded-full w-6 h-6 flex items-center justify-center text-xs md:text-sm shadow">
+                            BB
+                          </span>
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    )}
+
+    <ExportMenu tirages={tirages} />
+  </div>
   );
 }
