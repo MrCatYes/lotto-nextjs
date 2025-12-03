@@ -81,7 +81,7 @@ export default function ExportMenu({ tirages }) {
     <div ref={menuRef} className="relative inline-block">
       <button
         onClick={() => setOpen(o => !o)}
-        className="px-3 py-2 bg-green-600 text-white rounded mt-4"
+              className="px-3 py-2 bg-gray-900 text-white rounded hover:bg-gray-700 transition h-10 shrink-0 mt-4"
       >
         Export
       </button>
@@ -89,26 +89,26 @@ export default function ExportMenu({ tirages }) {
       {/* MENU EXPORT */}
       {open && (
         <div
-          className="absolute top-full left-0 w-40 bg-white border rounded shadow z-20 
+          className="absolute top-full left-0 w-40 dark:bg-gray-800 border rounded shadow z-20 
                      animate-fadeIn"
         >
           <button
             onClick={exportCSV}
-            className="block w-full px-3 py-2 text-left hover:bg-gray-100"
+            className="block w-full px-3 py-2 text-left hover:bg-gray-600"
           >
             📄 CSV
           </button>
 
           <button
             onClick={exportXLSX}
-            className="block w-full px-3 py-2 text-left hover:bg-gray-100"
+            className="block w-full px-3 py-2 text-left hover:bg-gray-600"
           >
             📊 XLSX
           </button>
 
           <button
             onClick={exportPDF}
-            className="block w-full px-3 py-2 text-left hover:bg-gray-100"
+            className="block w-full px-3 py-2 text-left hover:bg-gray-600"
           >
             🧾 PDF
           </button>

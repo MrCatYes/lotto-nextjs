@@ -11,6 +11,7 @@
   "dependencies": {
     "@apollo/client": "^4.0.9",
     "@headlessui/react": "^2.2.9",
+    "@heroicons/react": "^2.2.0",
     "date-fns": "^4.1.0",
     "file-saver": "^2.0.5",
     "graphql": "^16.12.0",

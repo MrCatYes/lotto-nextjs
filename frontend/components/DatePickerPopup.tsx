@@ -154,8 +154,8 @@ export default function DatePickerPopup({
           className={`
             w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded
             text-sm md:text-base transition
-            ${isAvailable ? "text-blue-700 font-semibold" : "text-gray-400 cursor-not-allowed"}
-            ${isSelected ? "bg-blue-600 text-white" : "hover:bg-blue-100 dark:hover:bg-gray-700"}
+            ${isAvailable ? "text-white font-semibold" : "text-gray-400 cursor-not-allowed"}
+            ${isSelected ? "bg-gray-600 text-white" : "hover:bg-blue-100 dark:hover:bg-gray-700"}
           `}
         >
           {i}
