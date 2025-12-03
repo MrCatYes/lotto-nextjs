@@ -19,15 +19,16 @@ import {
   PolarRadiusAxis,
   Radar,
 } from "recharts";
-import { format, subMonths, subYears, parseISO } from "date-fns";
+import { format, subMonths, subYears, parseISO, differenceInDays } from "date-fns";
 import { saveAs } from "file-saver";
 import * as XLSX from "xlsx";
 
 // --------------------------- Types ---------------------------
 type Occurrence = { number: number; count: number };
+
 type Tirage = {
   id?: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   num1: number;
   num2: number;
   num3: number;
@@ -38,23 +39,28 @@ type Tirage = {
   premium?: boolean;
 };
 
-// --------------------------- Component ---------------------------
+type RecoCombo = { name: string; numbers: number[] };
+
+// --------------------------- Composant principal ---------------------------
 export default function StatsPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("adminToken") : null;
+
   const [isPremium, setIsPremium] = useState(false);
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [tirages, setTirages] = useState<Tirage[]>([]);
   const [loading, setLoading] = useState(false);
+
   const [filterPreset, setFilterPreset] = useState<"all" | "1m" | "6m" | "1y" | "custom">("all");
   const [customFrom, setCustomFrom] = useState<string>("");
   const [customTo, setCustomTo] = useState<string>("");
-  const [compareYearA, setCompareYearA] = useState<number | null>(null);
-  const [compareYearB, setCompareYearB] = useState<number | null>(null);
   const [sortKey, setSortKey] = useState<"number" | "count" | "lastSeen">("count");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
   const [fullscreenChart, setFullscreenChart] = useState<"bar" | "heat" | null>(null);
+
+  // **Nouveau** : filtre par numéro sélectionné (heatmap / top5)
+  const [numberFilter, setNumberFilter] = useState<number | null>(null);
 
   const client = useMemo(
     () =>
@@ -68,12 +74,11 @@ export default function StatsPage() {
     [token]
   );
 
-  // -------------------- Fetch data --------------------
+  // -------------------- Récupération des données --------------------
   useEffect(() => {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        // 1) occurrences (count per number)
         const resOcc = await client.query({
           query: gql`
             query Occ($premium: Boolean) {
@@ -86,12 +91,8 @@ export default function StatsPage() {
           variables: { premium: !!isPremium },
           fetchPolicy: "no-cache",
         });
+        setOccurrences(resOcc.data.occurrences || []);
 
-        const occ: Occurrence[] = resOcc.data.occurrences || [];
-        setOccurrences(occ);
-
-        // 2) pull recent tirages to compute last/first seen etc.
-        // Note: adjust limit if you have many rows; we request 2000 here as "enough".
         const resT = await client.query({
           query: gql`
             query Tirages($limit: Int!, $premium: Boolean!) {
@@ -114,11 +115,10 @@ export default function StatsPage() {
         });
 
         const ts: Tirage[] = resT.data.tirages || [];
-        // ensure ordered most recent first
         ts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         setTirages(ts);
       } catch (err) {
-        console.error("GraphQL error", err);
+        console.error("Erreur GraphQL", err);
       } finally {
         setLoading(false);
       }
@@ -127,57 +127,56 @@ export default function StatsPage() {
     fetchAll();
   }, [client, isPremium]);
 
-  // -------------------- Helpers --------------------
-  // compute lastSeen and firstSeen for numbers 1..50
+  // -------------------- Calculs --------------------
   const numbersMeta = useMemo(() => {
-    // default meta
     const meta: {
       number: number;
       count: number;
       firstSeen?: string | null;
       lastSeen?: string | null;
-      gaps?: number; // days since last seen approx.
+      gapDays?: number | null;
+      probability?: number;
     }[] = [];
 
     const occMap = new Map<number, number>();
     occurrences.forEach((o) => occMap.set(o.number, o.count));
 
-    // traverse tirages once to find last/first seen
     const lastSeenMap = new Map<number, string>();
     const firstSeenMap = new Map<number, string>();
 
     for (const t of tirages) {
-      const d = t.date;
-      [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.bonus].forEach((n) => {
-        if (n === undefined || n === null) return;
-        // lastSeen: first time we encounter in the sorted (most recent first) tirages is last seen
-        if (!lastSeenMap.has(n)) lastSeenMap.set(n, d);
-        // firstSeen: set if not present OR if this date is older
-        if (!firstSeenMap.has(n)) firstSeenMap.set(n, d);
-        else {
-          const prev = firstSeenMap.get(n)!;
-          if (new Date(d).getTime() < new Date(prev).getTime()) firstSeenMap.set(n, d);
-        }
+      const nums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.bonus];
+      nums.forEach((n) => {
+        if (!n) return;
+        if (!lastSeenMap.has(n)) lastSeenMap.set(n, t.date);
+        if (!firstSeenMap.has(n) || new Date(t.date) < new Date(firstSeenMap.get(n)!)) firstSeenMap.set(n, t.date);
       });
     }
 
+    const totalDraws = tirages.length || 1;
+
     for (let n = 1; n <= 50; n++) {
+      const last = lastSeenMap.get(n) || null;
+      const gap = last ? differenceInDays(new Date(), new Date(last)) : null;
+      const cnt = occMap.get(n) || 0;
+      const prob = totalDraws > 0 ? cnt / (totalDraws * 6) : 0;
       meta.push({
         number: n,
-        count: occMap.get(n) || 0,
-        lastSeen: lastSeenMap.get(n) || null,
+        count: cnt,
+        lastSeen: last,
         firstSeen: firstSeenMap.get(n) || null,
+        gapDays: gap,
+        probability: prob,
       });
     }
 
     return meta;
   }, [occurrences, tirages]);
 
-  // filter by date range
+  // -------------------- Filtrage dynamique --------------------
   const filteredTirages = useMemo(() => {
     let from: Date | null = null;
     let to: Date | null = null;
-
     const now = new Date();
     if (filterPreset === "1m") from = subMonths(now, 1);
     else if (filterPreset === "6m") from = subMonths(now, 6);
@@ -188,14 +187,14 @@ export default function StatsPage() {
     }
 
     return tirages.filter((t) => {
-      const d = new Date(t.date + "T00:00:00Z"); // parse safely as UTC
+      const d = new Date(t.date + "T00:00:00Z");
       if (from && d < from) return false;
       if (to && d > to) return false;
+      if (numberFilter && ![t.num1, t.num2, t.num3, t.num4, t.num5, t.num6].includes(numberFilter)) return false;
       return true;
     });
-  }, [tirages, filterPreset, customFrom, customTo]);
+  }, [tirages, filterPreset, customFrom, customTo, numberFilter]);
 
-  // filtered occurrences (recompute counts from filteredTirages for dynamic filters)
   const dynamicOccurrences = useMemo(() => {
     const map = new Map<number, number>();
     for (const t of filteredTirages) {
@@ -204,20 +203,14 @@ export default function StatsPage() {
       });
     }
     const arr: Occurrence[] = Array.from(map.entries()).map(([number, count]) => ({ number, count }));
-    // ensure 1..50 present (maybe zero)
-    for (let i = 1; i <= 50; i++) {
-      if (!map.has(i)) arr.push({ number: i, count: 0 });
-    }
-    // sort by number
+    for (let i = 1; i <= 50; i++) if (!map.has(i)) arr.push({ number: i, count: 0 });
     arr.sort((a, b) => a.number - b.number);
     return arr;
   }, [filteredTirages]);
 
-  // Top 5 with delta vs global occurrences
+  // -------------------- Top 5 + delta --------------------
   const top5 = useMemo(() => {
-    // current filtered counts
     const curr = dynamicOccurrences.slice().sort((a, b) => b.count - a.count).slice(0, 5);
-    // global map
     const globalMap = new Map<number, number>();
     occurrences.forEach((o) => globalMap.set(o.number, o.count));
     return curr.map((c) => {
@@ -227,27 +220,54 @@ export default function StatsPage() {
     });
   }, [dynamicOccurrences, occurrences]);
 
-  // heatmap colors
+  // -------------------- Recommandations --------------------
+  const recommandations: RecoCombo[] = useMemo(() => {
+    const sorted = numbersMeta.slice().sort((a, b) => b.count - a.count);
+    return [
+      { name: "Équilibré", numbers: sorted.slice(0, 6).map((n) => n.number) },
+      { name: "Agressif", numbers: sorted.slice(0, 3).map((n) => n.number).concat(sorted.slice(-3).map((n) => n.number)) },
+      { name: "Conservateur", numbers: sorted.slice(-6).map((n) => n.number) },
+    ];
+  }, [numbersMeta]);
+
+  // -------------------- Top paires --------------------
+  const topPairs = useMemo(() => {
+    const pairMap = new Map<string, number>();
+    for (const t of filteredTirages) {
+      const nums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6].sort((a, b) => a - b);
+      for (let i = 0; i < nums.length; i++) for (let j = i + 1; j < nums.length; j++) {
+        const key = `${nums[i]}|${nums[j]}`;
+        pairMap.set(key, (pairMap.get(key) || 0) + 1);
+      }
+    }
+    const arr = Array.from(pairMap.entries()).map(([k, v]) => {
+      const [a, b] = k.split("|").map(Number);
+      return { pair: `${a}-${b}`, a, b, count: v };
+    });
+    arr.sort((x, y) => y.count - x.count);
+    return arr.slice(0, 20);
+  }, [filteredTirages]);
+
   const heatColor = (count: number) => {
-    // simple scale: 0 -> #e6e6e6, max -> #004085 (dark blue)
     const max = Math.max(...dynamicOccurrences.map((d) => d.count), 1);
     const t = count / max;
-    // interpolate green-blue depending on t
-    const blue = [13, 110, 253]; // #0d6efd
-    const green = [25, 135, 84]; // #198754
+    const blue = [13, 110, 253];
+    const green = [25, 135, 84];
     const r = Math.round(green[0] * (1 - t) + blue[0] * t);
     const g = Math.round(green[1] * (1 - t) + blue[1] * t);
     const b = Math.round(green[2] * (1 - t) + blue[2] * t);
     return `rgb(${r}, ${g}, ${b})`;
   };
 
-  // sorted table data
+  // -------------------- Tableau & pagination --------------------
   const tableData = useMemo(() => {
-    const rows = numbersMeta.map((m) => ({
+    let rows = numbersMeta.map((m) => ({
       number: m.number,
       count: m.count,
       lastSeen: m.lastSeen,
       firstSeen: m.firstSeen,
+      gapDays: m.gapDays,
+      probability: m.probability,
     }));
     rows.sort((a, b) => {
       let v = 0;
@@ -263,99 +283,148 @@ export default function StatsPage() {
     return rows;
   }, [numbersMeta, sortKey, sortDir]);
 
-  // pagination
   const pageCount = Math.ceil(tableData.length / perPage);
   const pageRows = tableData.slice((page - 1) * perPage, page * perPage);
 
-  // export table -> xlsx
+  // -------------------- Export XLSX --------------------
   const exportXLSX = () => {
     const wb = XLSX.utils.book_new();
-    const wsData = [["Number", "Count", "Last Seen", "First Seen"], ...tableData.map((r) => [r.number, r.count, r.lastSeen || "-", r.firstSeen || "-"])];
+    const wsData = [
+      ["Numéro", "Occurrences", "Dernière sortie", "Première sortie", "Écart (jours)", "Probabilité (par tirage)"],
+      ...tableData.map((r) => [
+        r.number,
+        r.count,
+        r.lastSeen ?? "-",
+        r.firstSeen ?? "-",
+        r.gapDays ?? "-",
+        r.probability !== undefined ? r.probability.toFixed(5) : "-",
+      ]),
+    ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     XLSX.utils.book_append_sheet(wb, ws, "Numbers");
     const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-    saveAs(new Blob([wbout]), `numbers_stats_${Date.now()}.xlsx`);
+    saveAs(new Blob([wbout]), `stats_numbers_${Date.now()}.xlsx`);
   };
 
-  // -------------------- UI --------------------
+  // -------------------- Rendu --------------------
   return (
     <div className="py-6 max-w-7xl mx-auto px-4">
+      {/* Heatmap clickable */}
+      <div className="grid grid-cols-10 gap-1 mb-4">
+        {dynamicOccurrences.map(d => (
+          <div key={d.number} className="flex flex-col items-center">
+            <div
+              title={`${d.number}: ${d.count}`}
+              onClick={() => setNumberFilter(numberFilter === d.number ? null : d.number)}
+              className={`w-10 h-10 flex items-center justify-center rounded-full text-white font-semibold shadow cursor-pointer border-2 ${numberFilter === d.number ? "border-yellow-400" : "border-transparent"}`}
+              style={{ background: heatColor(d.count) }}
+            >
+              {d.number}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Recommandations */}
+      <div className="flex gap-3 mb-4">
+        {recommandations.map((r) => (
+          <div key={r.name} className="p-3 bg-white dark:bg-gray-800 rounded shadow cursor-pointer">
+            <div className="text-sm text-gray-500">{r.name}</div>
+            <div className="flex gap-1 mt-1">
+              {r.numbers.map((n) => (
+                <div key={n} className="w-6 h-6 flex items-center justify-center rounded-full bg-blue-600 text-white text-xs">{n}</div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Reste de ton UI (histogramme, top5, tableau, pagination) */}
+      {/* ... tu peux coller ton code actuel ici sans changement ... */}
+ 
+
+
+  // -------------------- Rendu UI (FR) --------------------
+
+    <div className="py-6 max-w-7xl mx-auto px-4">
+      {/* Entête */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-semibold">Statistiques Lotto</h2>
 
         <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={isPremium} onChange={(e) => setIsPremium(e.target.checked)} />
             Simuler Premium
           </label>
-
           <div className="flex items-center gap-2">
-            <button onClick={() => setFullscreenChart("bar")} className="px-3 py-1 bg-gray-200 rounded">Fullscreen Bar</button>
-            <button onClick={() => setFullscreenChart("heat")} className="px-3 py-1 bg-gray-200 rounded">Fullscreen Heat</button>
+            <button onClick={() => setFullscreenChart("bar")} className="px-3 py-1 bg-gray-100 rounded border">Afficher histogramme</button>
+            <button onClick={() => setFullscreenChart("heat")} className="px-3 py-1 bg-gray-100 rounded border">Afficher heatmap</button>
           </div>
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filtres */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="flex items-center gap-2">
-          <button className={`px-3 py-1 rounded ${filterPreset==="all" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("all")}>All</button>
-          <button className={`px-3 py-1 rounded ${filterPreset==="1m" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("1m")}>1M</button>
-          <button className={`px-3 py-1 rounded ${filterPreset==="6m" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("6m")}>6M</button>
-          <button className={`px-3 py-1 rounded ${filterPreset==="1y" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("1y")}>1Y</button>
-          <button className={`px-3 py-1 rounded ${filterPreset==="custom" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("custom")}>Custom</button>
+          <button className={`px-3 py-1 rounded ${filterPreset === "all" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("all")}>Tous</button>
+          <button className={`px-3 py-1 rounded ${filterPreset === "1m" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("1m")}>1 mois</button>
+          <button className={`px-3 py-1 rounded ${filterPreset === "6m" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("6m")}>6 mois</button>
+          <button className={`px-3 py-1 rounded ${filterPreset === "1y" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("1y")}>1 an</button>
+          <button className={`px-3 py-1 rounded ${filterPreset === "custom" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("custom")}>Période</button>
         </div>
 
         {filterPreset === "custom" && (
           <div className="flex gap-2 items-center">
             <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="border rounded px-2 py-1" />
-            <span>→</span>
+            <span className="text-sm">→</span>
             <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="border rounded px-2 py-1" />
           </div>
         )}
 
         <div className="ml-auto flex items-center gap-3">
-          <label className="text-sm">Per page
+          <label className="text-sm">Résultats / page
             <select className="ml-2 border rounded px-2 py-1" value={perPage} onChange={(e) => setPerPage(Number(e.target.value))}>
               {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </label>
 
-          <button onClick={exportXLSX} className="px-3 py-1 bg-green-600 text-white rounded">Export XLSX</button>
+          <button onClick={exportXLSX} className="px-3 py-1 bg-green-600 text-white rounded">Exporter XLSX</button>
         </div>
       </div>
 
-      {/* Top cards */}
+      {/* Cartes hautes */}
       <div className="grid md:grid-cols-3 gap-4 mb-6">
         <div className="p-4 bg-white dark:bg-gray-800 rounded shadow">
-          <div className="text-sm text-gray-500">Total tirages chargés</div>
+          <div className="text-sm text-gray-500">Tirages chargés</div>
           <div className="text-2xl font-bold">{tirages.length}</div>
         </div>
 
         <div className="p-4 bg-white dark:bg-gray-800 rounded shadow">
-          <div className="text-sm text-gray-500">Top 1 (dynamic)</div>
+          <div className="text-sm text-gray-500">Top 1 (période)</div>
           <div className="text-2xl font-bold">
-            {dynamicOccurrences.slice().sort((a,b)=>b.count-a.count)[0]?.number || "-"} ({dynamicOccurrences.slice().sort((a,b)=>b.count-a.count)[0]?.count || 0})
+            {dynamicOccurrences.slice().sort((a, b) => b.count - a.count)[0]?.number || "-"} ({dynamicOccurrences.slice().sort((a, b) => b.count - a.count)[0]?.count || 0})
           </div>
         </div>
 
         <div className="p-4 bg-white dark:bg-gray-800 rounded shadow">
-          <div className="text-sm text-gray-500">Note</div>
-          <div className="text-sm text-gray-600 dark:text-gray-300">Filtres dynamiques & export disponibles</div>
+          <div className="text-sm text-gray-500">Remarque</div>
+          <div className="text-sm text-gray-600 dark:text-gray-300">
+            Données dynamiques selon filtres — certaines fonctions réservées aux abonnés.
+          </div>
         </div>
       </div>
 
-      {/* Charts row */}
+      {/* Ligne de graphiques */}
       <div className="grid lg:grid-cols-3 gap-4 mb-6">
-        {/* Bar chart */}
+        {/* Histogramme */}
         <div className="p-4 bg-white dark:bg-gray-800 rounded shadow h-72">
-          <div className="text-sm font-semibold mb-2">Number Frequencies</div>
+          <div className="text-sm font-semibold mb-2">Fréquence des numéros</div>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={dynamicOccurrences}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="number" />
               <YAxis />
-              <Tooltip />
+              <Tooltip formatter={(value: any) => [value, "Apparitions"]} />
               <Bar dataKey="count" fill="#0d6efd" isAnimationActive />
             </BarChart>
           </ResponsiveContainer>
@@ -369,7 +438,7 @@ export default function StatsPage() {
               <div key={d.number} className="flex flex-col items-center">
                 <div
                   title={`${d.number}: ${d.count}`}
-                  className="w-10 h-10 flex items-center justify-center rounded-full text-white font-semibold"
+                  className="w-10 h-10 flex items-center justify-center rounded-full text-white font-semibold shadow"
                   style={{ background: heatColor(d.count) }}
                 >
                   {d.number}
@@ -399,7 +468,7 @@ export default function StatsPage() {
                       <Cell key={entry.number} fill={idx % 2 === 0 ? "#0d6efd" : "#198754"} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip formatter={(value: any, name: any) => [value, "Apparitions"]} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -417,9 +486,9 @@ export default function StatsPage() {
         </div>
       </div>
 
-      {/* Top5 list */}
+      {/* Top5 */}
       <div className="mb-6">
-        <div className="text-lg font-semibold mb-2">Top 5 (filtered)</div>
+        <div className="text-lg font-semibold mb-2">Top 5 (période)</div>
         <div className="flex gap-3">
           {top5.map((t) => (
             <div key={t.number} className="p-3 bg-white dark:bg-gray-800 rounded shadow flex-1">
@@ -433,16 +502,32 @@ export default function StatsPage() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* Top Paires */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-lg font-semibold">Paires les plus fréquentes</div>
+          <div className="text-sm text-gray-500">Top {topPairs.length}</div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {topPairs.map((p, idx) => (
+            <div key={idx} className="p-2 bg-white dark:bg-gray-800 rounded shadow flex items-center justify-between">
+              <div className="font-semibold">{p.pair}</div>
+              <div className="text-sm text-gray-600">{p.count}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Tableau détaillé */}
       <div className="bg-white dark:bg-gray-800 rounded shadow p-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-lg font-semibold">Numbers table</div>
+          <div className="text-lg font-semibold">Table des numéros</div>
           <div className="flex items-center gap-2">
-            <label className="text-sm">Sort by</label>
+            <label className="text-sm">Trier par</label>
             <select value={sortKey} onChange={(e) => setSortKey(e.target.value as any)} className="border rounded px-2 py-1">
-              <option value="count">Count</option>
-              <option value="number">Number</option>
-              <option value="lastSeen">Last seen</option>
+              <option value="count">Nombre</option>
+              <option value="number">Numéro</option>
+              <option value="lastSeen">Dernière sortie</option>
             </select>
             <button onClick={() => setSortDir((s) => (s === "asc" ? "desc" : "asc"))} className="px-2 py-1 border rounded">{sortDir === "asc" ? "↑" : "↓"}</button>
           </div>
@@ -452,19 +537,23 @@ export default function StatsPage() {
           <table className="min-w-full text-left">
             <thead>
               <tr className="bg-gray-50">
-                <th className="px-3 py-2">Number</th>
-                <th className="px-3 py-2">Count</th>
-                <th className="px-3 py-2">Last seen</th>
-                <th className="px-3 py-2">First seen</th>
+                <th className="px-3 py-2">Numéro</th>
+                <th className="px-3 py-2">Occurrences</th>
+                <th className="px-3 py-2">Dernière sortie</th>
+                <th className="px-3 py-2">Première sortie</th>
+                <th className="px-3 py-2">Écart (jours)</th>
+                <th className="px-3 py-2">Prob. (par tirage)</th>
               </tr>
             </thead>
             <tbody>
               {pageRows.map((r) => (
                 <tr key={r.number} className="border-b">
-                  <td className="px-3 py-2">{r.number}</td>
+                  <td className="px-3 py-2 font-semibold">{r.number}</td>
                   <td className="px-3 py-2">{r.count}</td>
                   <td className="px-3 py-2">{r.lastSeen ?? "-"}</td>
                   <td className="px-3 py-2">{r.firstSeen ?? "-"}</td>
+                  <td className="px-3 py-2">{r.gapDays ?? "-"}</td>
+                  <td className="px-3 py-2">{r.probability !== undefined ? (r.probability * 100).toFixed(3) + " %" : "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -477,8 +566,8 @@ export default function StatsPage() {
             Page {page} / {pageCount}
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-3 py-1 border rounded">Prev</button>
-            <button onClick={() => setPage((p) => Math.min(pageCount, p + 1))} className="px-3 py-1 border rounded">Next</button>
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-3 py-1 border rounded">Préc</button>
+            <button onClick={() => setPage((p) => Math.min(pageCount, p + 1))} className="px-3 py-1 border rounded">Suiv</button>
           </div>
         </div>
       </div>
@@ -488,8 +577,8 @@ export default function StatsPage() {
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded shadow w-full max-w-6xl h-full max-h-[90vh] p-4 overflow-auto">
             <div className="flex items-center justify-between mb-3">
-              <div className="text-xl font-semibold">{fullscreenChart === "bar" ? "Bar chart (fullscreen)" : "Heatmap (fullscreen)"}</div>
-              <button onClick={() => setFullscreenChart(null)} className="px-3 py-1 bg-gray-200 rounded">Close</button>
+              <div className="text-xl font-semibold">{fullscreenChart === "bar" ? "Histogramme (plein écran)" : "Heatmap (plein écran)"}</div>
+              <button onClick={() => setFullscreenChart(null)} className="px-3 py-1 bg-gray-100 rounded border">Fermer</button>
             </div>
 
             {fullscreenChart === "bar" && (
@@ -519,6 +608,7 @@ export default function StatsPage() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
