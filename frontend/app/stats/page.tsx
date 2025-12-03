@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, Fragment } from "react";
 import { ApolloClient, InMemoryCache, HttpLink, gql } from "@apollo/client";
+import { Listbox } from "@headlessui/react";
+import { ChevronUpDownIcon } from "@heroicons/react/24/outline";
 import {
   ResponsiveContainer,
   BarChart,
@@ -10,18 +12,12 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  PieChart,
-  Pie,
-  Cell,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
 } from "recharts";
 import { format, subMonths, subYears, parseISO, differenceInDays } from "date-fns";
 import { saveAs } from "file-saver";
 import * as XLSX from "xlsx";
+import { motion } from "framer-motion";
+import { ArrowUp, ArrowDown, Minus } from "lucide-react";
 
 // --------------------------- Types ---------------------------
 type Occurrence = { number: number; count: number };
@@ -59,19 +55,34 @@ export default function StatsPage() {
   const [perPage, setPerPage] = useState(25);
   const [fullscreenChart, setFullscreenChart] = useState<"bar" | "heat" | null>(null);
 
-  // **Nouveau** : filtre par numéro sélectionné (heatmap / top5)
   const [numberFilter, setNumberFilter] = useState<number | null>(null);
+  const [recoMethod, setRecoMethod] = useState<"raw"|"weighted"|"zscore"|"markov"|"burst"|"ai">("raw");
+  const [simTirage, setSimTirage] = useState<Tirage | null>(null);
 
-  const client = useMemo(
-    () =>
-      new ApolloClient({
-        link: new HttpLink({
-          uri: "http://localhost:4000/graphql",
-          headers: { Authorization: token ? `Bearer ${token}` : "" },
-        }),
-        cache: new InMemoryCache(),
+  const sortOptions = [
+    { value: "count", label: "Nombre" },
+    { value: "number", label: "Numéro" },
+    { value: "lastSeen", label: "Dernière sortie" },
+  ];
+  const perPageOptions = [10, 25, 50, 100];
+
+  const recoExplanations: Record<string,string> = {
+    raw: "Classement simple basé sur le nombre total de sorties.",
+    weighted: "Pondération des numéros récents, favorise ceux sortis plus récemment.",
+    zscore: "Score statistique normalisé pour identifier les écarts par rapport à la moyenne.",
+    markov: "Chaînes de Markov : prédiction basée sur les transitions entre numéros successifs.",
+    burst: "Détection des pics : identifie les numéros en phase d’activité anormale.",
+    ai: "Modèle IA hybride : combinaison pondérée fréquence + récence + momentum + bursts + Markov.",
+  };
+
+  const client = useMemo(() =>
+    new ApolloClient({
+      link: new HttpLink({
+        uri: "http://localhost:4000/graphql",
+        headers: { Authorization: token ? `Bearer ${token}` : "" },
       }),
-    [token]
+      cache: new InMemoryCache(),
+    }), [token]
   );
 
   // -------------------- Récupération des données --------------------
@@ -123,7 +134,6 @@ export default function StatsPage() {
         setLoading(false);
       }
     };
-
     fetchAll();
   }, [client, isPremium]);
 
@@ -139,14 +149,14 @@ export default function StatsPage() {
     }[] = [];
 
     const occMap = new Map<number, number>();
-    occurrences.forEach((o) => occMap.set(o.number, o.count));
+    occurrences.forEach(o => occMap.set(o.number, o.count));
 
     const lastSeenMap = new Map<number, string>();
     const firstSeenMap = new Map<number, string>();
 
     for (const t of tirages) {
       const nums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.bonus];
-      nums.forEach((n) => {
+      nums.forEach(n => {
         if (!n) return;
         if (!lastSeenMap.has(n)) lastSeenMap.set(n, t.date);
         if (!firstSeenMap.has(n) || new Date(t.date) < new Date(firstSeenMap.get(n)!)) firstSeenMap.set(n, t.date);
@@ -154,7 +164,6 @@ export default function StatsPage() {
     }
 
     const totalDraws = tirages.length || 1;
-
     for (let n = 1; n <= 50; n++) {
       const last = lastSeenMap.get(n) || null;
       const gap = last ? differenceInDays(new Date(), new Date(last)) : null;
@@ -208,7 +217,8 @@ export default function StatsPage() {
     return arr;
   }, [filteredTirages]);
 
-  // -------------------- Top 5 + delta --------------------
+  
+  // -------------------- Top5 + delta --------------------
   const top5 = useMemo(() => {
     const curr = dynamicOccurrences.slice().sort((a, b) => b.count - a.count).slice(0, 5);
     const globalMap = new Map<number, number>();
@@ -222,23 +232,87 @@ export default function StatsPage() {
 
   // -------------------- Recommandations --------------------
   const recommandations: RecoCombo[] = useMemo(() => {
-    const sorted = numbersMeta.slice().sort((a, b) => b.count - a.count);
-    return [
-      { name: "Équilibré", numbers: sorted.slice(0, 6).map((n) => n.number) },
-      { name: "Agressif", numbers: sorted.slice(0, 3).map((n) => n.number).concat(sorted.slice(-3).map((n) => n.number)) },
-      { name: "Conservateur", numbers: sorted.slice(-6).map((n) => n.number) },
-    ];
-  }, [numbersMeta]);
+    let scored = numbersMeta.slice();
 
-  // -------------------- Top paires --------------------
+    if (recoMethod === "weighted") {
+      const weights = new Map<number, number>();
+      tirages.forEach((t, idx) => {
+        const w = 1 + ((tirages.length - idx) / tirages.length) * 5;
+        [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6].forEach(n => {
+          weights.set(n, (weights.get(n) || 0) + w);
+        });
+      });
+      scored.forEach(n => n.probability = weights.get(n.number) || 0);
+    } else if (recoMethod === "zscore") {
+      const probs = scored.map(n => n.probability || 0);
+      const avg = probs.reduce((a,b)=>a+b,0)/probs.length;
+      const std = Math.sqrt(probs.reduce((a,b)=>a+Math.pow(b-avg,2),0)/probs.length);
+      scored.forEach(n => n.probability = std===0?0:( (n.probability||0)-avg)/std );
+    } else if (recoMethod === "markov") {
+      const matrix = new Map<number, Map<number, number>>();
+      tirages.forEach(t => {
+        const nums = [t.num1,t.num2,t.num3,t.num4,t.num5,t.num6];
+        nums.forEach(a=>{
+          if(!matrix.has(a)) matrix.set(a,new Map());
+          nums.forEach(b=>{
+            if(a!==b) matrix.get(a)!.set(b,(matrix.get(a)!.get(b)||0)+1)
+          })
+        })
+      });
+      scored.forEach(n=>{
+        const row = matrix.get(n.number);
+        n.probability = row ? Array.from(row.values()).reduce((a,b)=>a+b,0) : 0;
+      })
+    } else if (recoMethod === "burst") {
+      const recent = tirages.slice(-30);
+      const mid = tirages.slice(-100);
+      const recentCount = new Map<number,number>();
+      const midCount = new Map<number,number>();
+      recent.forEach(t=>[t.num1,t.num2,t.num3,t.num4,t.num5,t.num6].forEach(n=>recentCount.set(n,(recentCount.get(n)||0)+1)));
+      mid.forEach(t=>[t.num1,t.num2,t.num3,t.num4,t.num5,t.num6].forEach(n=>midCount.set(n,(midCount.get(n)||0)+1)));
+      scored.forEach(n=>{
+        const r = recentCount.get(n.number)||0;
+        const m = midCount.get(n.number)||1;
+        n.probability = r/m;
+      });
+    } else if (recoMethod === "ai") {
+      const freqMap = new Map(numbersMeta.map(n=>[n.number,n.count]));
+      const weightedMap = new Map<number,number>();
+      tirages.forEach((t,idx)=>{ 
+        const w = 1+((tirages.length-idx)/tirages.length)*5; 
+        [t.num1,t.num2,t.num3,t.num4,t.num5,t.num6].forEach(n=>weightedMap.set(n,(weightedMap.get(n)||0)+w))
+      });
+      const momentum = new Map<number,number>();
+      const sliceA = tirages.slice(-100), sliceB=tirages.slice(-50);
+      const countA = new Map<number,number>(), countB = new Map<number,number>();
+      sliceA.forEach(t=>[t.num1,t.num2,t.num3,t.num4,t.num5,t.num6].forEach(n=>countA.set(n,(countA.get(n)||0)+1)));
+      sliceB.forEach(t=>[t.num1,t.num2,t.num3,t.num4,t.num5,t.num6].forEach(n=>countB.set(n,(countB.get(n)||0)+1)));
+      scored.forEach(n=>momentum.set(n.number,((countB.get(n.number)||0)-((countA.get(n.number)||1)/2))/((countA.get(n.number)||1))));
+      scored.forEach(n=>{
+        const f = freqMap.get(n.number)||0, w = weightedMap.get(n.number)||0, m = momentum.get(n.number)||0;
+        n.probability = f*0.4 + w*0.4 + m*0.2;
+      });
+    }
+
+    scored.sort((a,b)=> (b.probability||0)-(a.probability||0));
+    return [
+      {name:"Équilibré", numbers: scored.slice(0,6).map(n=>n.number)},
+      {name:"Agressif", numbers: scored.slice(0,3).map(n=>n.number).concat(scored.slice(-3).map(n=>n.number))},
+      {name:"Conservateur", numbers: scored.slice(-6).map(n=>n.number)}
+    ];
+  }, [numbersMeta, tirages, recoMethod]);
+
+  
+  // -------------------- Top Paires --------------------
   const topPairs = useMemo(() => {
     const pairMap = new Map<string, number>();
     for (const t of filteredTirages) {
       const nums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6].sort((a, b) => a - b);
-      for (let i = 0; i < nums.length; i++) for (let j = i + 1; j < nums.length; j++) {
-        const key = `${nums[i]}|${nums[j]}`;
-        pairMap.set(key, (pairMap.get(key) || 0) + 1);
-      }
+      for (let i = 0; i < nums.length; i++)
+        for (let j = i + 1; j < nums.length; j++) {
+          const key = `${nums[i]}|${nums[j]}`;
+          pairMap.set(key, (pairMap.get(key) || 0) + 1);
+        }
     }
     const arr = Array.from(pairMap.entries()).map(([k, v]) => {
       const [a, b] = k.split("|").map(Number);
@@ -306,11 +380,75 @@ export default function StatsPage() {
     saveAs(new Blob([wbout]), `stats_numbers_${Date.now()}.xlsx`);
   };
 
+  // -------------------- Top5 UI intégré --------------------
+  const Top5Period: React.FC<{ data: { number: number; count: number; delta: number | null }[] }> = ({ data }) => {
+    if (!data || data.length === 0) return <div className="text-sm text-gray-500">Aucun résultat pour cette période.</div>;
+    return (
+      <div className="mb-6">
+        <div className="text-lg font-semibold mb-2">Top 5 (période)</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+          {data.map((item, i) => {
+            const isPositive = item.delta !== null && item.delta > 0;
+            const isNegative = item.delta !== null && item.delta < 0;
+            return (
+              <motion.div
+                key={item.number}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.06 }}
+                className="rounded-2xl shadow-md bg-white dark:bg-gray-800 p-4 border border-gray-200 dark:border-gray-700"
+              >
+                <div className="flex justify-between items-center mb-2">
+                  <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">#{item.number}</div>
+                  {item.delta === null ? (
+                    <div className="flex items-center text-gray-400">
+                      <Minus size={18} />
+                      <span className="ml-1 text-sm">-</span>
+                    </div>
+                  ) : isPositive ? (
+                    <div className="flex items-center text-green-600 dark:text-green-400">
+                      <ArrowUp size={18} />
+                      <span className="ml-2 text-sm font-semibold">{item.delta.toFixed(1)}%</span>
+                    </div>
+                  ) : isNegative ? (
+                    <div className="flex items-center text-red-600 dark:text-red-400">
+                      <ArrowDown size={18} />
+                      <span className="ml-2 text-sm font-semibold">{item.delta.toFixed(1)}%</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center text-gray-400">
+                      <Minus size={18} />
+                      <span className="ml-1 text-sm">0%</span>
+                    </div>
+                  )}
+                </div>
+                <div className="text-sm text-gray-500 dark:text-gray-300">Sorties dans la période :</div>
+                <div className="mt-1 text-2xl font-bold">{item.count}</div>
+                <div className="mt-3">
+                  <button
+                    onClick={() => setNumberFilter(numberFilter === item.number ? null : item.number)}
+                    className={`text-sm px-3 py-1 rounded-full border ${
+                      numberFilter === item.number ? "bg-yellow-400 border-yellow-400 text-black" : "bg-transparent"
+                    }`}
+                    aria-pressed={numberFilter === item.number}
+                    title={numberFilter === item.number ? "Retirer le filtre" : "Filtrer par ce numéro"}
+                  >
+                    {numberFilter === item.number ? "Filtré" : "Filtrer"}
+                  </button>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   // -------------------- Rendu --------------------
   return (
     <div className="py-6 max-w-7xl mx-auto px-4">
-      {/* Heatmap clickable */}
-      <div className="grid grid-cols-10 gap-1 mb-4">
+            {/* Heatmap clickable */}
+            <div className="grid grid-cols-10 gap-1 mb-4">
         {dynamicOccurrences.map(d => (
           <div key={d.number} className="flex flex-col items-center">
             <div
@@ -324,6 +462,57 @@ export default function StatsPage() {
           </div>
         ))}
       </div>
+      {/* Sélecteur méthode */}
+      <div className="mb-4 flex items-center gap-3">
+        <label className="font-semibold">Méthode de calcul :</label>
+        <Listbox value={recoMethod} onChange={setRecoMethod}>
+          <div className="relative w-52">
+            <Listbox.Button className="relative w-full cursor-pointer rounded border px-3 py-2 text-left flex justify-between items-center">
+              {recoExplanations[recoMethod].slice(0, 40)}...
+              <ChevronUpDownIcon className="h-5 w-5" />
+            </Listbox.Button>
+            <Listbox.Options className="absolute z-10 mt-1 w-full bg-white border rounded shadow max-h-60 overflow-auto">
+              {Object.keys(recoExplanations).map((key) => (
+                <Listbox.Option key={key} value={key} as={Fragment}>
+                  {({ active, selected }) => (
+                    <li className={`cursor-pointer px-3 py-2 ${active ? "bg-blue-500 text-white" : ""} ${selected ? "font-bold" : ""}`}>
+                      {key} - {recoExplanations[key]}
+                    </li>
+                  )}
+                </Listbox.Option>
+              ))}
+            </Listbox.Options>
+          </div>
+        </Listbox>
+      </div>
+
+      <div className="mb-4 text-sm text-gray-600">{recoExplanations[recoMethod]}</div>
+
+      {/* Simulation de tirage */}
+      <button
+        onClick={()=>{
+          const nums: number[] = [];
+          while(nums.length<6){
+            const n = Math.floor(Math.random()*50)+1;
+            if(!nums.includes(n)) nums.push(n);
+          }
+          setSimTirage({date:new Date().toISOString(),num1:nums[0],num2:nums[1],num3:nums[2],num4:nums[3],num5:nums[4],num6:nums[5]});
+        }}
+        className="px-3 py-1 bg-yellow-500 text-black rounded mb-4"
+      >
+        Simuler tirage
+      </button>
+
+      {simTirage && (
+        <div className="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded">
+          <div className="font-semibold">Tirage simulé :</div>
+          <div className="flex gap-2 mt-1">
+            {[simTirage.num1,simTirage.num2,simTirage.num3,simTirage.num4,simTirage.num5,simTirage.num6].map(n=>(
+              <div key={n} className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 text-white">{n}</div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Recommandations */}
       <div className="flex gap-3 mb-4">
@@ -339,276 +528,255 @@ export default function StatsPage() {
         ))}
       </div>
 
-      {/* Reste de ton UI (histogramme, top5, tableau, pagination) */}
-      {/* ... tu peux coller ton code actuel ici sans changement ... */}
- 
+      {/* -------------------- Rendu UI (FR) -------------------- */}
 
+      <div className="py-6 max-w-7xl mx-auto px-4">
+        {/* Entête */}
+        
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-2xl font-semibold">Statistiques Lotto</h2>
 
-  // -------------------- Rendu UI (FR) --------------------
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={isPremium} onChange={(e) => setIsPremium(e.target.checked)} />
+              Simuler Premium
+            </label>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setFullscreenChart("bar")} className="px-3 py-1 bg-gray-800 rounded border">Afficher histogramme</button>
+              <button onClick={() => setFullscreenChart("heat")} className="px-3 py-1 bg-gray-800 rounded border">Afficher heatmap</button>
+            </div>
+          </div>
+        </div>
 
-    <div className="py-6 max-w-7xl mx-auto px-4">
-      {/* Entête */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-semibold">Statistiques Lotto</h2>
-
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={isPremium} onChange={(e) => setIsPremium(e.target.checked)} />
-            Simuler Premium
-          </label>
+        {/* Filtres */}
+        <div className="flex flex-wrap items-center gap-3 mb-4">
           <div className="flex items-center gap-2">
-            <button onClick={() => setFullscreenChart("bar")} className="px-3 py-1 bg-gray-100 rounded border">Afficher histogramme</button>
-            <button onClick={() => setFullscreenChart("heat")} className="px-3 py-1 bg-gray-100 rounded border">Afficher heatmap</button>
+            <button className={`px-3 py-1 rounded ${filterPreset === "all" ? "bg-gray-900 text-white" : "bg-gray-800"}`} onClick={() => setFilterPreset("all")}>Tous</button>
+            <button className={`px-3 py-1 rounded ${filterPreset === "1m" ? "bg-gray-900 text-white" : "bg-gray-800"}`} onClick={() => setFilterPreset("1m")}>1 mois</button>
+            <button className={`px-3 py-1 rounded ${filterPreset === "6m" ? "bg-gray-900 text-white" : "bg-gray-800"}`} onClick={() => setFilterPreset("6m")}>6 mois</button>
+            <button className={`px-3 py-1 rounded ${filterPreset === "1y" ? "bg-gray-900 text-white" : "bg-gray-800"}`} onClick={() => setFilterPreset("1y")}>1 an</button>
+            <button className={`px-3 py-1 rounded ${filterPreset === "custom" ? "bg-gray-900 text-white" : "bg-gray-800"}`} onClick={() => setFilterPreset("custom")}>Période</button>
           </div>
-        </div>
-      </div>
 
-      {/* Filtres */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex items-center gap-2">
-          <button className={`px-3 py-1 rounded ${filterPreset === "all" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("all")}>Tous</button>
-          <button className={`px-3 py-1 rounded ${filterPreset === "1m" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("1m")}>1 mois</button>
-          <button className={`px-3 py-1 rounded ${filterPreset === "6m" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("6m")}>6 mois</button>
-          <button className={`px-3 py-1 rounded ${filterPreset === "1y" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("1y")}>1 an</button>
-          <button className={`px-3 py-1 rounded ${filterPreset === "custom" ? "bg-blue-600 text-white" : "bg-gray-100"}`} onClick={() => setFilterPreset("custom")}>Période</button>
-        </div>
+          {filterPreset === "custom" && (
+            <div className="flex gap-2 items-center">
+              <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="border rounded px-2 py-1" />
+              <span className="text-sm">→</span>
+              <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="border rounded px-2 py-1" />
+            </div>
+          )}
 
-        {filterPreset === "custom" && (
-          <div className="flex gap-2 items-center">
-            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="border rounded px-2 py-1" />
-            <span className="text-sm">→</span>
-            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="border rounded px-2 py-1" />
-          </div>
-        )}
+          <div className="ml-auto flex items-center gap-3">
+            <label className="text-sm">Résultats / page  </label>
+            <Listbox value={perPage} onChange={(val) => setPerPage(val)}>
+              <div className="relative w-24 ml-2">
+                <Listbox.Button className="relative w-full cursor-pointer rounded border border-gray-300 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-left focus:outline-none focus:ring-2 focus:ring-blue-400 flex justify-between items-center">
+                  {perPage}
+                  <ChevronUpDownIcon className="h-5 w-5 text-gray-500 dark:text-gray-300" />
+                </Listbox.Button>
 
-        <div className="ml-auto flex items-center gap-3">
-          <label className="text-sm">Résultats / page
-            <select className="ml-2 border rounded px-2 py-1" value={perPage} onChange={(e) => setPerPage(Number(e.target.value))}>
-              {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
+                <Listbox.Options className="absolute z-10 mt-1 w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded shadow-lg max-h-60 overflow-auto">
+                  {perPageOptions.map((n) => (
+                    <Listbox.Option key={n} value={n} as={Fragment}>
+                      {({ active, selected }) => (
+                        <li
+                          className={`cursor-pointer px-3 py-2 ${
+                            active ? "bg-gray-600 text-white" : "text-gray-900 dark:text-gray-100"
+                          } ${selected ? "font-bold" : ""}`}
+                        >
+                          {n}
+                        </li>
+                      )}
+                    </Listbox.Option>
+                  ))}
+                </Listbox.Options>
+              </div>
+            </Listbox>
 
-          <button onClick={exportXLSX} className="px-3 py-1 bg-green-600 text-white rounded">Exporter XLSX</button>
-        </div>
-      </div>
-
-      {/* Cartes hautes */}
-      <div className="grid md:grid-cols-3 gap-4 mb-6">
-        <div className="p-4 bg-white dark:bg-gray-800 rounded shadow">
-          <div className="text-sm text-gray-500">Tirages chargés</div>
-          <div className="text-2xl font-bold">{tirages.length}</div>
-        </div>
-
-        <div className="p-4 bg-white dark:bg-gray-800 rounded shadow">
-          <div className="text-sm text-gray-500">Top 1 (période)</div>
-          <div className="text-2xl font-bold">
-            {dynamicOccurrences.slice().sort((a, b) => b.count - a.count)[0]?.number || "-"} ({dynamicOccurrences.slice().sort((a, b) => b.count - a.count)[0]?.count || 0})
+            <button onClick={exportXLSX} className="px-3 py-1 bg-green-600 text-white rounded">Exporter XLSX</button>
           </div>
         </div>
 
-        <div className="p-4 bg-white dark:bg-gray-800 rounded shadow">
-          <div className="text-sm text-gray-500">Remarque</div>
-          <div className="text-sm text-gray-600 dark:text-gray-300">
-            Données dynamiques selon filtres — certaines fonctions réservées aux abonnés.
+        {/* Cartes hautes */}
+        <div className="grid md:grid-cols-2 gap-4 mb-6">
+          <div className="p-4 bg-white dark:bg-gray-800 rounded shadow">
+            <div className="text-sm text-gray-500">Tirages chargés</div>
+            <div className="text-2xl font-bold">{tirages.length}</div>
+          </div>
+
+          <div className="p-4 bg-white dark:bg-gray-800 rounded shadow">
+            <div className="text-sm text-gray-500">Top 1 (période)</div>
+            <div className="text-2xl font-bold">
+              {dynamicOccurrences.slice().sort((a, b) => b.count - a.count)[0]?.number || "-"} ({dynamicOccurrences.slice().sort((a, b) => b.count - a.count)[0]?.count || 0})
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Ligne de graphiques */}
-      <div className="grid lg:grid-cols-3 gap-4 mb-6">
-        {/* Histogramme */}
-        <div className="p-4 bg-white dark:bg-gray-800 rounded shadow h-72">
-          <div className="text-sm font-semibold mb-2">Fréquence des numéros</div>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={dynamicOccurrences}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="number" />
-              <YAxis />
-              <Tooltip formatter={(value: any) => [value, "Apparitions"]} />
-              <Bar dataKey="count" fill="#0d6efd" isAnimationActive />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {/* Ligne de graphiques */}
+        <div className="grid lg:grid-cols-2 gap-4 mb-6">
+          {/* Histogramme */}
+          <div className="p-4 bg-white dark:bg-gray-800 rounded shadow h-72">
+            <div className="text-sm font-semibold mb-2">Fréquence des numéros</div>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dynamicOccurrences}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="number" />
+                <YAxis />
+                <Tooltip formatter={(value: any) => [value, "Apparitions"]} />
+                <Bar dataKey="count" fill="#0d6efd" isAnimationActive />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
 
-        {/* Heatmap */}
-        <div className="p-4 bg-white dark:bg-gray-800 rounded shadow">
-          <div className="text-sm font-semibold mb-2">Heatmap (1–50)</div>
-          <div className="grid grid-cols-10 gap-1">
-            {dynamicOccurrences.map(d => (
-              <div key={d.number} className="flex flex-col items-center">
-                <div
-                  title={`${d.number}: ${d.count}`}
-                  className="w-10 h-10 flex items-center justify-center rounded-full text-white font-semibold shadow"
-                  style={{ background: heatColor(d.count) }}
-                >
-                  {d.number}
+          {/* Heatmap */}
+          <div className="p-4 bg-white dark:bg-gray-800 rounded shadow">
+            <div className="text-sm font-semibold mb-2">Heatmap (1–50)</div>
+            <div className="grid grid-cols-10 gap-1">
+              {dynamicOccurrences.map(d => (
+                <div key={d.number} className="flex flex-col items-center">
+                  <div
+                    title={`${d.number}: ${d.count}`}
+                    className="w-10 h-10 flex items-center justify-center rounded-full text-white font-semibold shadow"
+                    style={{ background: heatColor(d.count) }}
+                  >
+                    {d.number}
+                  </div>
+                  <div className="text-xs text-gray-500">{d.count}</div>
                 </div>
-                <div className="text-xs text-gray-500">{d.count}</div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Top5 amélioré - intégré */}
+        <Top5Period data={top5} />
+
+        {/* Top Paires */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-lg font-semibold">Paires les plus fréquentes</div>
+            <div className="text-sm text-gray-500">Top {topPairs.length}</div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {topPairs.map((p, idx) => (
+              <div key={idx} className="p-2 bg-white dark:bg-gray-800 rounded shadow flex items-center justify-between">
+                <div className="font-semibold">{p.pair}</div>
+                <div className="text-sm text-gray-600">{p.count}</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Pie + Radar */}
-        <div className="p-4 bg-white dark:bg-gray-800 rounded shadow h-72">
-          <div className="text-sm font-semibold mb-2">Distribution / Patterns</div>
-          <div className="flex h-full gap-2">
-            <div className="w-1/2">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={dynamicOccurrences.slice(0, 6)}
-                    dataKey="count"
-                    nameKey="number"
-                    innerRadius={20}
-                    outerRadius={40}
-                    isAnimationActive
-                  >
-                    {dynamicOccurrences.slice(0, 6).map((entry, idx) => (
-                      <Cell key={entry.number} fill={idx % 2 === 0 ? "#0d6efd" : "#198754"} />
+        {/* Tableau détaillé */}
+        <div className="bg-white dark:bg-gray-800 rounded shadow p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-lg font-semibold">Table des numéros</div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm">Trier par</label>
+              <Listbox value={sortKey} onChange={(val) => setSortKey(val)}>
+                <div className="relative w-40">
+                  <Listbox.Button className="relative w-full cursor-pointer rounded border border-gray-300 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-left focus:outline-none focus:ring-2 focus:ring-blue-400 flex justify-between items-center">
+                    {sortOptions.find((o) => o.value === sortKey)?.label ?? "Trier par"}
+                    <ChevronUpDownIcon className="h-5 w-5 text-gray-500 dark:text-gray-300" />
+                  </Listbox.Button>
+
+                  <Listbox.Options className="absolute z-10 mt-1 w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded shadow-lg max-h-60 overflow-auto">
+                    {sortOptions.map((opt) => (
+                      <Listbox.Option key={opt.value} value={opt.value} as={Fragment}>
+                        {({ active, selected }) => (
+                          <li
+                            className={`cursor-pointer px-3 py-2 ${
+                              active ? "bg-gray-600 text-white" : "text-gray-900 dark:text-gray-100"
+                            } ${selected ? "font-bold" : ""}`}
+                          >
+                            {opt.label}
+                          </li>
+                        )}
+                      </Listbox.Option>
                     ))}
-                  </Pie>
-                  <Tooltip formatter={(value: any, name: any) => [value, "Apparitions"]} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="w-1/2">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart cx="50%" cy="50%" outerRadius="80%" data={dynamicOccurrences.slice(0, 8).map((d) => ({ number: `${d.number}`, count: d.count }))}>
-                  <PolarGrid />
-                  <PolarAngleAxis dataKey="number" />
-                  <PolarRadiusAxis />
-                  <Radar name="freq" dataKey="count" stroke="#0d6efd" fill="#0d6efd" fillOpacity={0.6} />
-                </RadarChart>
-              </ResponsiveContainer>
+                  </Listbox.Options>
+                </div>
+              </Listbox>
+              <button onClick={() => setSortDir((s) => (s === "asc" ? "desc" : "asc"))} className="px-2 py-1 border rounded">{sortDir === "asc" ? "↑" : "↓"}</button>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Top5 */}
-      <div className="mb-6">
-        <div className="text-lg font-semibold mb-2">Top 5 (période)</div>
-        <div className="flex gap-3">
-          {top5.map((t) => (
-            <div key={t.number} className="p-3 bg-white dark:bg-gray-800 rounded shadow flex-1">
-              <div className="text-sm text-gray-500">#{t.number}</div>
-              <div className="text-2xl font-bold">{t.count}</div>
-              <div className="text-sm">
-                {t.delta === null ? "-" : (t.delta > 0 ? <span className="text-green-600">+{t.delta.toFixed(1)}%</span> : <span className="text-red-600">{t.delta.toFixed(1)}%</span>)}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Top Paires */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-lg font-semibold">Paires les plus fréquentes</div>
-          <div className="text-sm text-gray-500">Top {topPairs.length}</div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {topPairs.map((p, idx) => (
-            <div key={idx} className="p-2 bg-white dark:bg-gray-800 rounded shadow flex items-center justify-between">
-              <div className="font-semibold">{p.pair}</div>
-              <div className="text-sm text-gray-600">{p.count}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Tableau détaillé */}
-      <div className="bg-white dark:bg-gray-800 rounded shadow p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-lg font-semibold">Table des numéros</div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm">Trier par</label>
-            <select value={sortKey} onChange={(e) => setSortKey(e.target.value as any)} className="border rounded px-2 py-1">
-              <option value="count">Nombre</option>
-              <option value="number">Numéro</option>
-              <option value="lastSeen">Dernière sortie</option>
-            </select>
-            <button onClick={() => setSortDir((s) => (s === "asc" ? "desc" : "asc"))} className="px-2 py-1 border rounded">{sortDir === "asc" ? "↑" : "↓"}</button>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="px-3 py-2">Numéro</th>
-                <th className="px-3 py-2">Occurrences</th>
-                <th className="px-3 py-2">Dernière sortie</th>
-                <th className="px-3 py-2">Première sortie</th>
-                <th className="px-3 py-2">Écart (jours)</th>
-                <th className="px-3 py-2">Prob. (par tirage)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pageRows.map((r) => (
-                <tr key={r.number} className="border-b">
-                  <td className="px-3 py-2 font-semibold">{r.number}</td>
-                  <td className="px-3 py-2">{r.count}</td>
-                  <td className="px-3 py-2">{r.lastSeen ?? "-"}</td>
-                  <td className="px-3 py-2">{r.firstSeen ?? "-"}</td>
-                  <td className="px-3 py-2">{r.gapDays ?? "-"}</td>
-                  <td className="px-3 py-2">{r.probability !== undefined ? (r.probability * 100).toFixed(3) + " %" : "-"}</td>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left">
+              <thead>
+                <tr className="bg-gray-700">
+                  <th className="px-3 py-2">Numéro</th>
+                  <th className="px-3 py-2">Occurrences</th>
+                  <th className="px-3 py-2">Dernière sortie</th>
+                  <th className="px-3 py-2">Première sortie</th>
+                  <th className="px-3 py-2">Écart (jours)</th>
+                  <th className="px-3 py-2">Prob. (par tirage)</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* pagination */}
-        <div className="flex items-center justify-between mt-3">
-          <div>
-            Page {page} / {pageCount}
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-3 py-1 border rounded">Préc</button>
-            <button onClick={() => setPage((p) => Math.min(pageCount, p + 1))} className="px-3 py-1 border rounded">Suiv</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Fullscreen overlay */}
-      {fullscreenChart && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 rounded shadow w-full max-w-6xl h-full max-h-[90vh] p-4 overflow-auto">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-xl font-semibold">{fullscreenChart === "bar" ? "Histogramme (plein écran)" : "Heatmap (plein écran)"}</div>
-              <button onClick={() => setFullscreenChart(null)} className="px-3 py-1 bg-gray-100 rounded border">Fermer</button>
-            </div>
-
-            {fullscreenChart === "bar" && (
-              <ResponsiveContainer width="100%" height={700}>
-                <BarChart data={dynamicOccurrences}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="number" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="#0d6efd" />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-
-            {fullscreenChart === "heat" && (
-              <div className="grid grid-cols-10 gap-2">
-                {dynamicOccurrences.map(d => (
-                  <div key={d.number} className="flex flex-col items-center">
-                    <div className="w-16 h-16 flex items-center justify-center rounded-full text-white font-semibold" style={{ background: heatColor(d.count) }}>
-                      {d.number}
-                    </div>
-                    <div className="mt-2">{d.count}</div>
-                  </div>
+              </thead>
+              <tbody>
+                {pageRows.map((r) => (
+                  <tr key={r.number} className="border-b">
+                    <td className="px-3 py-2 font-semibold">{r.number}</td>
+                    <td className="px-3 py-2">{r.count}</td>
+                    <td className="px-3 py-2">{r.lastSeen ?? "-"}</td>
+                    <td className="px-3 py-2">{r.firstSeen ?? "-"}</td>
+                    <td className="px-3 py-2">{r.gapDays ?? "-"}</td>
+                    <td className="px-3 py-2">{r.probability !== undefined ? (r.probability * 100).toFixed(3) + " %" : "-"}</td>
+                  </tr>
                 ))}
-              </div>
-            )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* pagination */}
+          <div className="flex items-center justify-between mt-3">
+            <div>
+              Page {page} / {pageCount}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-3 py-1 border rounded">Préc</button>
+              <button onClick={() => setPage((p) => Math.min(pageCount, p + 1))} className="px-3 py-1 border rounded">Suiv</button>
+            </div>
           </div>
         </div>
-      )}
-    </div>
+
+        {/* Fullscreen overlay */}
+        {fullscreenChart && (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-gray-800 rounded shadow w-full max-w-6xl h-full max-h-[90vh] p-4 overflow-auto">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xl font-semibold">{fullscreenChart === "bar" ? "Histogramme (plein écran)" : "Heatmap (plein écran)"}</div>
+                <button onClick={() => setFullscreenChart(null)} className="px-3 py-1 bg-gray-800 rounded border">Fermer</button>
+              </div>
+
+              {fullscreenChart === "bar" && (
+                <ResponsiveContainer width="100%" height={700}>
+                  <BarChart data={dynamicOccurrences}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="number" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#0d6efd" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+
+              {fullscreenChart === "heat" && (
+                <div className="grid grid-cols-10 gap-2">
+                  {dynamicOccurrences.map(d => (
+                    <div key={d.number} className="flex flex-col items-center">
+                      <div className="w-16 h-16 flex items-center justify-center rounded-full text-white font-semibold" style={{ background: heatColor(d.count) }}>
+                        {d.number}
+                      </div>
+                      <div className="mt-2">{d.count}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

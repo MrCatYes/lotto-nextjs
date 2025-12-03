@@ -224,7 +224,7 @@ export default function TiragesPage() {
                 {({ active, selected }) => (
                   <li
                     className={`cursor-pointer px-3 py-2 ${
-                      active ? "bg-blue-600 text-white" : "text-gray-900 dark:text-gray-100"
+                      active ? "bg-gray-600 text-white" : "text-gray-900 dark:text-gray-100"
                     } ${selected ? "font-bold" : ""}`}
                   >
                     Tous
@@ -236,7 +236,7 @@ export default function TiragesPage() {
                   {({ active, selected }) => (
                     <li
                       className={`cursor-pointer px-3 py-2 ${
-                        active ? "bg-blue-600 text-white" : "text-gray-900 dark:text-gray-100"
+                        active ? "bg-gray-600 text-white" : "text-gray-900 dark:text-gray-100"
                       } ${selected ? "font-bold" : ""}`}
                     >
                       {month}
