@@ -35,17 +35,24 @@ const typeDefs = gql`
 
   type Query {
     tirages(limit: Int!, offset: Int, premium: Boolean!, date: String, year: Int, month: Int): [Tirage!]!
+    _empty: String
 
     occurrences(premium: Boolean): [Occurrence]
     admins: [Admin!]!
     availableDates(premium: Boolean): [String!]!
   }
 
+  type TiragesSimules {
+    equilibre: [Int!]!
+    agressif: [Int!]!
+    conservateur: [Int!]!
+  }
+
   type Mutation {
     calculerProbabilite(numeros: [Int]!, premium: Boolean): Probabilite
-
     createAdmin(username: String!, password: String!): Admin!
     loginAdmin(username: String!, password: String!): AuthPayload!
+    simulateDraw(mode: String!, premium: Boolean!): TiragesSimules!
   }
 `;
 

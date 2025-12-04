@@ -1,7 +1,14 @@
 ﻿const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { openDB } = require("../db");
-
+const {
+  raw: drawRaw,
+  weighted: drawWeighted,
+  zscore: drawZScore,
+  markov: drawMarkov,
+  burst: drawBurst,
+  ai: drawAI,
+} = require("../drawStrategies");
 const SECRET = "ton_secret_jwt"; // à mettre en variable d'environnement
 let admins = []; // mémoire pour test
 
@@ -114,6 +121,55 @@ const resolvers = {
       });
 
       return { probabilite: rows.length > 0 ? count / rows.length : 0 };
+    },
+
+    simulateDraw: async (_, { mode, premium = false }, context) => {
+      const db = await context.db();
+
+      // Limite le nombre de tirages récents pour éviter surcharge
+      const tirages = await db.all(
+        "SELECT num1,num2,num3,num4,num5,num6,bonus FROM tirages WHERE premium=? ORDER BY date DESC LIMIT 100",
+        [premium ? 1 : 0]
+      );
+
+      let strategyFn;
+      switch (mode) {
+        case "raw":
+          strategyFn = drawRaw;
+          break;
+        case "weighted":
+          strategyFn = drawWeighted;
+          break;
+        case "zscore":
+          strategyFn = drawZScore;
+          break;
+        case "markov":
+          strategyFn = drawMarkov;
+          break;
+        case "burst":
+          strategyFn = drawBurst;
+          break;
+        case "ai":
+          strategyFn = drawAI;
+          break;
+        default:
+          strategyFn = drawRaw;
+      }
+
+      const strategies = ["equilibre", "agressif", "conservateur"];
+      const results = strategies.reduce((acc, strategy) => {
+        const tirage = strategyFn({
+          tirages,
+          occurrences: [],
+          type: strategy,
+          includeBonus: false,
+          maxAttempts: 50,
+        });
+        acc[strategy] = tirage.sort((a, b) => a - b); // 🔹 tri croissant
+        return acc;
+      }, {});
+
+      return results;
     },
   },
 };
