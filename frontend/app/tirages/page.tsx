@@ -17,6 +17,7 @@ interface Tirage {
   num4: number;
   num5: number;
   num6: number;
+  num7: number;
   bonus?: number;
   premium: boolean;
 }
@@ -58,6 +59,7 @@ export default function TiragesPage() {
               num4
               num5
               num6
+              num7
               bonus
               premium
             }
@@ -282,7 +284,7 @@ export default function TiragesPage() {
                     <td className="px-4 py-3">{t.date}</td>
                     <td className="px-4 py-3 flex gap-2 flex-wrap justify-center items-center">
                       {/* Boules principales */}
-                      {[t.num1, t.num2, t.num3, t.num4, t.num5, t.num6].map((n, i) => {
+                      {[t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.num7].map((n, i) => {
                         const colors = ["#0d6efd", "#198754"];
                         const color = colors[i % colors.length];
                         return (

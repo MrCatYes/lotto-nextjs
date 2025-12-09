@@ -29,7 +29,7 @@ export default function AdminDashboard() {
         query: gql`
           query GetTirages($limit: Int!, $premium: Boolean!) {
             tirages(limit: $limit, premium: $premium) {
-              id date num1 num2 num3 num4 num5 num6 bonus premium
+              id date num1 num2 num3 num4 num5 num6 num7 bonus premium
             }
           }
         `,
@@ -74,7 +74,7 @@ export default function AdminDashboard() {
               <tr key={t.id} className="border-b hover:bg-gray-50 dark:hover:bg-gray-700">
                 <td className="px-4 py-2">{t.date}</td>
                 <td className="px-4 py-2 flex gap-1 flex-wrap">
-                  {[t.num1, t.num2, t.num3, t.num4, t.num5, t.num6].map((n, i) => (
+                  {[t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.num7].map((n, i) => (
                     <span key={i} className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-sm">{n}</span>
                   ))}
                 </td>

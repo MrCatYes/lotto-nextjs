@@ -31,6 +31,7 @@ type Tirage = {
   num4: number;
   num5: number;
   num6: number;
+  num7: number;
   bonus?: number;
   premium?: boolean;
 };
@@ -117,6 +118,7 @@ export default function StatsPage() {
                 num4
                 num5
                 num6
+                num7
                 bonus
                 premium
               }
@@ -156,7 +158,7 @@ export default function StatsPage() {
     const firstSeenMap = new Map<number, string>();
 
     for (const t of tirages) {
-      const nums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.bonus];
+      const nums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.num7, t.bonus];
       nums.forEach(n => {
         if (!n) return;
         if (!lastSeenMap.has(n)) lastSeenMap.set(n, t.date);
@@ -207,7 +209,7 @@ export default function StatsPage() {
       const d = new Date(t.date + "T00:00:00Z");
       if (from && d < from) return false;
       if (to && d > to) return false;
-      if (numberFilter && ![t.num1,t.num2,t.num3,t.num4,t.num5,t.num6].includes(numberFilter)) return false;
+      if (numberFilter && ![t.num1,t.num2,t.num3,t.num4,t.num5,t.num6, t.num7].includes(numberFilter)) return false;
       return true;
     });
   }, [tirages, filterPreset, customFrom, customTo, numberFilter]);
@@ -217,7 +219,7 @@ export default function StatsPage() {
     const tiragesToCount = filterPreset === "all" ? tirages : filteredTirages;
   
     for (const t of tiragesToCount) {
-      [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6].forEach(n => {
+      [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.num7].forEach(n => {
         map.set(n, (map.get(n) || 0) + 1);
       });
     }
@@ -259,6 +261,7 @@ const simulateAll = async (backendMethod: "ai" | "raw" | "weighted" | "markov" |
       variables: { mode: backendMethod, premium: isPremium ?? false }, // ✅ fallback
       fetchPolicy: "no-cache",
     });
+    console.log("methode :", backendMethod);
 
     setSimulatedDraws(res.data?.simulateDraw ?? {});
     console.log("Tous les tirages simulés :", res.data?.simulateDraw);
@@ -288,7 +291,7 @@ const simulateAll = async (backendMethod: "ai" | "raw" | "weighted" | "markov" |
   const topPairs = useMemo(() => {
     const pairMap = new Map<string, number>();
     for (const t of filteredTirages) {
-      const nums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6].sort((a, b) => a - b);
+      const nums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.num7].sort((a, b) => a - b);
       for (let i = 0; i < nums.length; i++)
         for (let j = i + 1; j < nums.length; j++) {
           const key = `${nums[i]}|${nums[j]}`;

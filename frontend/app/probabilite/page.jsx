@@ -80,7 +80,7 @@ export default function ProbPage() {
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="p-4 bg-white dark:bg-gray-800 rounded shadow">
-          <label className="block text-sm font-medium">Sélectionnez vos numéros (ex: 1,5,12,23,34,45)</label>
+          <label className="block text-sm font-medium">Sélectionnez vos numéros (ex: 1,5,12,16,23,34,45)</label>
           <input value={selection} onChange={e=>setSelection(e.target.value)} className="mt-2 w-full px-3 py-2 border rounded" />
           <div className="mt-3 flex items-center gap-3">
             <label className="flex items-center gap-2">

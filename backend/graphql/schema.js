@@ -10,6 +10,7 @@ const typeDefs = gql`
     num4: Int
     num5: Int
     num6: Int
+    num7: Int
     bonus: Int
     premium: Boolean
   }

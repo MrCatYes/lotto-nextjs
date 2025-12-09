@@ -1,6 +1,6 @@
 module.exports.generate = ({ tirages, occurrences, type, includeBonus = false, maxAttempts = 50 }) => {
   const recent = tirages.slice(0, 20).flatMap((t) => {
-    const nums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6];
+    const nums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.num7];
     if (includeBonus) nums.push(t.bonus);
     return nums;
   });

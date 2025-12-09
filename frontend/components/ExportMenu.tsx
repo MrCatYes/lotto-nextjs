@@ -20,7 +20,7 @@ export default function ExportMenu({ tirages }) {
   // Data pour export
   const exportData = tirages.map(t => ({
     date: t.date,
-    numéros: `${t.num1} ${t.num2} ${t.num3} ${t.num4} ${t.num5} ${t.num6}`,
+    numéros: `${t.num1} ${t.num2} ${t.num3} ${t.num4} ${t.num5} ${t.num6} ${t.num7}`,
     bonus: t.bonus ?? "",
     premium: t.premium ? "Oui" : "Non",
   }));

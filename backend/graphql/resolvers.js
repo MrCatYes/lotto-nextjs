@@ -52,7 +52,7 @@ const resolvers = {
       const db = await openDB();
 
       premium = !!premium;
-      let query = "SELECT num1,num2,num3,num4,num5,num6 FROM tirages";
+      let query = "SELECT num1,num2,num3,num4,num5,num6,num7 FROM tirages";
       const params = [];
       if (!premium) query += " WHERE premium=0";
 
@@ -60,7 +60,7 @@ const resolvers = {
 
       const counts = {};
       rows.forEach((r) => {
-        [r.num1, r.num2, r.num3, r.num4, r.num5, r.num6].forEach((n) => {
+        [r.num1, r.num2, r.num3, r.num4, r.num5, r.num6, r.num7].forEach((n) => {
           if (!n) return;
           counts[n] = (counts[n] || 0) + 1;
         });
@@ -108,7 +108,7 @@ const resolvers = {
       premium = !!premium;
       numeros = numeros.map(Number);
 
-      let query = "SELECT num1,num2,num3,num4,num5,num6,bonus FROM tirages";
+      let query = "SELECT num1,num2,num3,num4,num5,num6,num7,bonus FROM tirages";
       const params = [];
       if (!premium) query += " WHERE premium=0";
 
@@ -116,7 +116,7 @@ const resolvers = {
 
       let count = 0;
       rows.forEach((t) => {
-        const tirageNums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.bonus];
+        const tirageNums = [t.num1, t.num2, t.num3, t.num4, t.num5, t.num6, t.num7, t.bonus];
         if (numeros.every((n) => tirageNums.includes(n))) count++;
       });
 
@@ -128,7 +128,7 @@ const resolvers = {
 
       // Limite le nombre de tirages récents pour éviter surcharge
       const tirages = await db.all(
-        "SELECT num1,num2,num3,num4,num5,num6,bonus FROM tirages WHERE premium=? ORDER BY date DESC LIMIT 100",
+        "SELECT num1,num2,num3,num4,num5,num6,num7,bonus FROM tirages WHERE premium=? ORDER BY date DESC LIMIT 100",
         [premium ? 1 : 0]
       );
 
