@@ -58,6 +58,7 @@ SQLite
 
 JavaScript / TypeScript
 
+---
 
 ### Améliorations futures
 
