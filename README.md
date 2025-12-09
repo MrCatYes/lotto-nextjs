@@ -1,4 +1,9 @@
-﻿# Lotto Viewer - Next.js + GraphQL
+
+[![Node.js](https://img.shields.io/badge/Node.js-16+-green)](https://nodejs.org/) 
+[![Next.js](https://img.shields.io/badge/Next.js-14+-black)](https://nextjs.org/) 
+[![Licence](https://img.shields.io/badge/Licence-MIT-blue)](LICENSE)
+
+ # Lotto Viewer - Next.js + GraphQL
 
 ## Description
 Applicationweb permettant de **visualiser des tirages de loto** et d’**analyser les probabilités** des numéros.  
