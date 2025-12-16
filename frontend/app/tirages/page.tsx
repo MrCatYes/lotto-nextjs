@@ -8,6 +8,12 @@ import ExportMenu from "@/components/ExportMenu";
 import { Listbox } from "@headlessui/react";
 import { Fragment } from "react";
 import { ChevronUpDownIcon } from "@heroicons/react/20/solid";
+
+// --------------------------- Types ---------------------------
+type TiragesQueryResult = {
+  tirages: Tirage[];
+};
+
 interface Tirage {
   id: string;
   date: string;
@@ -47,7 +53,7 @@ export default function TiragesPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await client.query({
+      const res = await client.query<TiragesQueryResult>({
         query: gql`
           query GetTirages($limit: Int!, $offset: Int!, $premium: Boolean!, $date: String, $year: Int, $month: Int) {
             tirages(limit: $limit, offset: $offset, premium: $premium, date: $date, year: $year, month: $month) {
@@ -76,7 +82,7 @@ export default function TiragesPage() {
         fetchPolicy: "no-cache",
       });
 
-      let allTirages: Tirage[] = res.data.tirages;
+      let allTirages: Tirage[] = res.data?.tirages ?? [];
 
       if (!isPremium) {
         const twoYearsAgo = new Date();

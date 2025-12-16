@@ -35,7 +35,21 @@ type Tirage = {
   bonus?: number;
   premium?: boolean;
 };
+type OccurrencesQueryResult = {
+  occurrences: Occurrence[];
+};
 
+type TiragesQueryResult = {
+  tirages: Tirage[];
+};
+
+type SimulateDrawResult = {
+  simulateDraw: {
+    equilibre: number[];
+    agressif: number[];
+    conservateur: number[];
+  };
+};
 
 // --------------------------- Composant principal ---------------------------
 export default function StatsPage() {
@@ -92,7 +106,7 @@ export default function StatsPage() {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const resOcc = await client.query({
+        const resOcc = await client.query<OccurrencesQueryResult>({
           query: gql`
             query Occ($premium: Boolean) {
               occurrences(premium: $premium) {
@@ -104,9 +118,11 @@ export default function StatsPage() {
           variables: { premium: !!isPremium },
           fetchPolicy: "no-cache",
         });
-        setOccurrences(resOcc.data.occurrences || []);
 
-        const resT = await client.query({
+        setOccurrences(resOcc.data?.occurrences ?? []);
+
+
+        const resT = await client.query<TiragesQueryResult>({
           query: gql`
             query Tirages($limit: Int!, $premium: Boolean!) {
               tirages(limit: $limit, premium: $premium) {
@@ -128,7 +144,7 @@ export default function StatsPage() {
           fetchPolicy: "no-cache",
         });
 
-        const ts: Tirage[] = resT.data.tirages || [];
+        const ts = resT.data?.tirages ?? [];
         ts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         setTirages(ts);
       } catch (err) {
@@ -248,7 +264,7 @@ const [simulatedDraws, setSimulatedDraws] = useState<{
 // Fonction pour appeler la mutation GraphQL et récupérer les 3 tirages
 const simulateAll = async (backendMethod: "ai" | "raw" | "weighted" | "markov" | "burst" | "zscore" = "ai") => {
   try {
-    const res = await client.mutate({
+      const res = await client.mutate<SimulateDrawResult>({
       mutation: gql`
         mutation SimulateDraw($mode: String!, $premium: Boolean!) {
           simulateDraw(mode: $mode, premium: $premium) {
@@ -319,7 +335,7 @@ const simulateAll = async (backendMethod: "ai" | "raw" | "weighted" | "markov" |
 
   // -------------------- Tableau & pagination --------------------
   const tableData = useMemo(() => {
-    let rows = numbersMeta.map((m) => ({
+    const rows = numbersMeta.map((m) => ({
       number: m.number,
       count: m.count,
       lastSeen: m.lastSeen,

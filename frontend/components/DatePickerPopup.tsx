@@ -11,6 +11,10 @@ interface DatePickerPopupProps {
 
 type ViewMode = "days" | "months" | "years";
 
+type AvailableDatesQueryResult = {
+  availableDates: string[];
+};
+
 export default function DatePickerPopup({
   value,
   onChange,
@@ -38,7 +42,8 @@ export default function DatePickerPopup({
   // Charger les dates disponibles
   const fetchAvailableDates = async () => {
     try {
-      const res = await client.query({
+      const res = await client.query<AvailableDatesQueryResult>({
+
         query: gql`
           query GetAvailableDates($premium: Boolean!) {
             availableDates(premium: $premium)
@@ -48,7 +53,8 @@ export default function DatePickerPopup({
         fetchPolicy: "no-cache",
       });
 
-      const dates: string[] = res.data.availableDates;
+      const dates: string[] = res.data?.availableDates ?? [];
+
       setAvailableDates(dates);
 
       const years = [...new Set(dates.map((d) => Number(d.split("-")[0])))].sort(

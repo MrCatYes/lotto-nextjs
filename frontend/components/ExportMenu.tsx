@@ -2,7 +2,25 @@ import { useRef, useEffect, useState } from "react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
-export default function ExportMenu({ tirages }) {
+interface Tirage {
+  id: string;
+  date: string;
+  num1: number;
+  num2: number;
+  num3: number;
+  num4: number;
+  num5: number;
+  num6: number;
+  num7: number;
+  bonus?: number;
+  premium: boolean;
+}
+
+interface ExportMenuProps {
+  tirages: Tirage[];
+}
+
+export default function ExportMenu({ tirages }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
